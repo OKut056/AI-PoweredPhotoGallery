@@ -1,8 +1,8 @@
-ï»¿# AI-Powered Photo Gallery Project Context
+# AI-Powered Photo Gallery Project Context
 
 > Handoff document for future Codex sessions. Read this file first, then inspect the current code. Do not infer product requirements from code alone.
 
-Last updated: 2026-07-04
+Last updated: 2026-07-05
 
 ## 1\. Product Goal
 
@@ -22,35 +22,38 @@ Core product direction:
 Original requirement document:
 
 ```text
-D:\\source\\æ™ºèƒ½ç›¸å†Œè½¯ä»¶éœ€æ±‚æ–‡æ¡£.docx
+D:\\source\\ÖÇÄÜÏà²áÈí¼şĞèÇóÎÄµµ.docx
 ```
 
 Important local UI reference screenshots:
 
 ```text
-E:\\test\\ç…§ç‰‡1.jpg
-E:\\test\\ç…§ç‰‡2.jpg
-E:\\test\\ç…§ç‰‡3.jpg
-E:\\test\\ç›¸å†Œ1.jpg
-E:\\test\\ç›¸å†Œ2.jpg
-E:\\test\\ç›¸å†Œ3.jpg
-E:\\test\\ç›¸å†Œ4.jpg
-E:\\test\\æŸ¥çœ‹å›¾ç‰‡1.jpg
-E:\\test\\æŸ¥çœ‹å›¾ç‰‡2.jpg
+E:\\test\\ÕÕÆ¬1.jpg
+E:\\test\\ÕÕÆ¬2.jpg
+E:\\test\\ÕÕÆ¬3.jpg
+E:\\test\\Ïà²á1.jpg
+E:\\test\\Ïà²á2.jpg
+E:\\test\\Ïà²á3.jpg
+E:\\test\\Ïà²á4.jpg
+E:\\test\\²é¿´Í¼Æ¬1.jpg
+E:\\test\\²é¿´Í¼Æ¬2.jpg
 ```
 
-`æŸ¥çœ‹å›¾ç‰‡1.jpg` is the visible-controls photo viewer reference. `æŸ¥çœ‹å›¾ç‰‡2.jpg` is the hidden-controls full black viewer reference.
+`²é¿´Í¼Æ¬1.jpg` is the visible-controls photo viewer reference. `²é¿´Í¼Æ¬2.jpg` is the hidden-controls full black viewer reference.
 
 ## 2\. Current Technical Shape
 
 Project type:
 
 * Android Kotlin project.
-* UI is Jetpack Compose in a mostly single-file style.
-* Main app code is currently concentrated in:
+* UI is Jetpack Compose. The earlier single-file prototype has been mechanically split by responsibility.
+* Main app code is currently split across:
 
 ```text
-app/src/main/java/com/example/ai\_poweredphotogallery/MainActivity.kt
+app/src/main/java/com/example/ai\_poweredphotogallery/MainActivity.kt          # app shell/state routing
+app/src/main/java/com/example/ai\_poweredphotogallery/GalleryModels.kt         # constants/models
+app/src/main/java/com/example/ai\_poweredphotogallery/GalleryStorage.kt        # test-folder scanning/loading/recent-deleted moves
+app/src/main/java/com/example/ai\_poweredphotogallery/GalleryScreens.kt        # Compose screens/components
 app/src/main/AndroidManifest.xml
 app/src/main/java/com/example/ai\_poweredphotogallery/ui/theme/Theme.kt
 ```
@@ -59,10 +62,13 @@ Current dependencies/architecture:
 
 * No Room database yet.
 * No Coil dependency yet.
-* No MediaStore query layer currently in use.
+* No MediaStore query layer currently in use. The prototype currently requests all-files access and uses direct `File` moves for `/sdcard/Pictures/GalleryTest`; production/gallery-scale storage should move to MediaStore `RELATIVE_PATH` updates instead of relying on all-files access.
+* No Media3/ExoPlayer video layer yet.
 * No AI/network layer yet.
+* No Domain layer yet. Add it only when business workflows coordinate multiple data sources, are reused by multiple screens, or ViewModel/app state starts owning multi-step rules. Likely future candidates: delete/restore, move, AI tagging, cleanup suggestions.
 * Images are decoded directly from files with `BitmapFactory` / `ImageBitmap`.
 * Some Chinese display strings in Kotlin are written as Unicode escapes to avoid Windows/editor encoding issues.
+* Do not plan to write custom C/C++ image/video decoding code. For production-scale media performance, prefer Android system media APIs and mature libraries: MediaStore for media discovery, Coil for image loading/caching, and Media3/ExoPlayer for video playback.
 
 ## 3\. Test Media Directory
 
@@ -76,7 +82,7 @@ Code constants:
 
 ```kotlin
 private const val GalleryRootName = "GalleryTest"
-private const val AllAlbumName = "\\u5168\\u90e8\\u9879\\u76ee" // å…¨éƒ¨é¡¹ç›®
+private const val AllAlbumName = "\\u5168\\u90e8\\u9879\\u76ee" // È«²¿ÏîÄ¿
 ```
 
 How to prepare emulator test images from the PC:
@@ -93,7 +99,7 @@ Subfolders under `/sdcard/Pictures/GalleryTest/` become albums. For example:
 /sdcard/Pictures/GalleryTest/Memes/b.png
 ```
 
-The Albums page should show `å…¨éƒ¨é¡¹ç›®`, `Travel`, and `Memes`.
+The Albums page should show `È«²¿ÏîÄ¿`, `Travel`, and `Memes`.
 
 Currently scanned image extensions:
 
@@ -117,7 +123,7 @@ Videos are not implemented yet.
 
 ### Permission and loading
 
-* Manifest includes `READ\_MEDIA\_IMAGES`.
+* Manifest includes `READ\_MEDIA\_IMAGES` and `MANAGE_EXTERNAL_STORAGE` for the current direct-folder prototype.
 * On launch, the app requests image permission.
 * The app creates `/sdcard/Pictures/GalleryTest/` if possible.
 * After permission is granted, it recursively scans `GalleryTest`.
@@ -131,34 +137,38 @@ Videos are not implemented yet.
 * Long press enters selection mode.
 * Selection mode exits automatically when no item remains selected.
 * When selected, the bottom nav moves away and `SelectionActionBar` appears.
-* Selection action buttons are placeholders only.
+* Selection delete asks for confirmation, then moves selected photos into `/sdcard/Pictures/GalleryTest/.recent_deleted/` when possible and records original relative paths for restore. If a photo is displayed under an album, restore targets `<album name>/<file name>` even when a logical move index is involved. If direct file movement fails under scoped-storage constraints, the app records a logical recent-deleted entry in app-private storage and filters it out of the main grid.
+* Selection move opens an album picker and physically moves selected photos into the chosen `GalleryTest` subfolder. If physical movement fails, the action reports 0 moved; do not fake a move with `move_index.tsv`. Share / more are still placeholders.
 * Pinch gesture changes grid density.
 * Right-side fast-scroll handle position is tied to grid scroll progress.
 * `BoxWithConstraints` is intentionally used to know available height for the fast-scroll offset.
 
 ### Albums page
 
-* Shows `å…¨éƒ¨é¡¹ç›®` plus real subfolders under `GalleryTest`.
+* Shows `È«²¿ÏîÄ¿` plus real subfolders under `GalleryTest`.
 * Does not intentionally add fake system folders anymore.
 * Album cover uses the first real photo if present.
 * Empty folders show color fallback covers.
 * Long press enters album selection mode.
-* Selection action buttons are placeholders only.
-* Add button creates a subfolder under `/sdcard/Pictures/GalleryTest/<album name>`, similar to creating an album folder.
-* `æ¸…ç†å»ºè®®` and `æœ€è¿‘åˆ é™¤` open blank placeholder pages.
-* Three-dot menu exposes `è®¾ç½®`, which opens a blank placeholder page.
+* Album selection delete moves photos from selected album folders into recent-deleted and records the original restore path as `<album name>/<file name>`. Empty folders are removed when possible; non-empty folders may remain if direct file movement is blocked and logical recent-deleted is used.
+* Add button creates a subfolder under `/sdcard/Pictures/GalleryTest/<album name>` and reports when the album already exists.
+* `ÇåÀí½¨Òé` opens a blank placeholder page.
+* `×î½üÉ¾³ı` opens a real recent-deleted page and shows the current deleted-photo count.
+* Three-dot menu exposes `ÉèÖÃ`, which opens a blank placeholder page.
 
 ### Album detail page
 
-* `å…¨éƒ¨é¡¹ç›®` opens all photos.
+* `È«²¿ÏîÄ¿` opens all photos.
 * Other albums open photos whose parent folder matches the album name.
 * Tapping a photo opens the viewer scoped to that album.
 * Long press enters selection mode.
+* Selection delete moves selected photos into recent-deleted.
+* Selection move opens an album picker and physically moves selected photos into the chosen album. No logical-move fallback should be used; folder albums represent real subfolders under `GalleryTest`.
 * Sort sheet exists visually, but sorting is not wired to real data yet.
 
 ### Photo viewer
 
-Implemented from the user-provided `æŸ¥çœ‹å›¾ç‰‡1.jpg` and `æŸ¥çœ‹å›¾ç‰‡2.jpg` references.
+Implemented from the user-provided `²é¿´Í¼Æ¬1.jpg` and `²é¿´Í¼Æ¬2.jpg` references.
 
 * Tap a photo in Photos or Album Detail to open.
 * Image immediately fits inside a full-screen black image area.
@@ -168,7 +178,7 @@ Implemented from the user-provided `æŸ¥çœ‹å›¾ç‰‡1.jpg` and `æŸ¥çœ‹å›¾ç‰‡2.jpg` r
 
   * white top bar with back, date/time, favorite placeholder, info placeholder,
   * white bottom thumbnail strip,
-  * bottom actions: share, edit, delete, more placeholders.
+  * bottom actions: share/edit/more placeholders; delete asks for confirmation and moves the current photo to recent-deleted.
 * Controls hidden:
 
   * pure black background,
@@ -181,13 +191,20 @@ Implemented from the user-provided `æŸ¥çœ‹å›¾ç‰‡1.jpg` and `æŸ¥çœ‹å›¾ç‰‡2.jpg` r
 
 * Placeholder only.
 * Future scope: chat, image search, edit image, generate image, batch tagging.
+### Recent deleted page
+
+* Shows photos moved into `/sdcard/Pictures/GalleryTest/.recent_deleted/` plus logical recent-deleted entries recorded in app-private storage when direct movement failed.
+* Restore moves selected photos back to their recorded original relative path under `GalleryTest`.
+* If the original album folder no longer exists, restore asks whether to place the photos in the root `GalleryTest` folder. If the user recreates a same-name album before restoring, the photo restores into that recreated folder. This also applies to logical recent-deleted entries where the physical file never moved into `.recent_deleted`; restore moves the file from its current physical path to the recorded original path when those paths differ.
+* If the original filename already exists, restore writes a numbered filename instead of overwriting.
+* Permanent delete is intentionally a red placeholder button only.
 
 ## 5\. Important Non-Implemented Work
 
 These are still placeholders or missing:
 
-* Real delete/move/share/edit/favorite/info behavior.
-* Real recent-deleted model.
+* Real copy/share/edit/favorite/info behavior.
+* Permanent delete from recent-deleted is placeholder only.
 * Real cleanup suggestions.
 * Real settings page.
 * Real import picker for single image or folder.
@@ -198,7 +215,7 @@ These are still placeholders or missing:
 * Local search.
 * Video scanning and playback.
 * Persisted sorting/filtering.
-* Tests.
+* Broader tests. Current instrumentation coverage includes app context plus recent-deleted restore for physical album deletion and logical-delete fallback.
 
 Do not assume a feature is implemented because a button exists. Many buttons currently show a toast or open a blank page.
 
@@ -208,27 +225,18 @@ The next useful development work should continue from the current app state, not
 
 Priority order:
 
-1. Make selection actions useful:
-
-   * photo delete should move files to an app-managed recent-deleted folder or implement a clearly reversible placeholder flow,
-   * album/folder selection should offer delete/rename/move where safe,
-   * avoid permanent delete until the user explicitly asks.
-2. Add real move/copy-to-album behavior:
-
-   * moving a photo means moving the file between subfolders under `GalleryTest`,
-   * update the UI after filesystem changes.
-3. Add a simple settings page:
+1. Add a simple settings page:
 
    * show current import root `/sdcard/Pictures/GalleryTest/`,
    * add refresh/rescan,
    * optionally show app/version/debug info.
-4. Add import/picker flow:
+2. Add import/picker flow:
 
    * first minimal path can stay test-oriented,
    * later use Android Storage Access Framework or MediaStore properly.
-5. Add video support only after image browsing is stable.
-6. Add Room/local index only when real file operations and browsing behavior are stable.
-7. Add AI tagging after the local index exists.
+3. Add video support only after image browsing is stable.
+4. Add Room/local index only when real file operations and browsing behavior are stable.
+5. Add AI tagging after the local index exists.
 
 ## 7\. Build and Verification
 
@@ -255,19 +263,61 @@ Codex sandbox note:
 * In this environment, Gradle may be blocked in the normal sandbox.
 * If a Gradle command fails because of sandbox permissions, rerun it with escalation instead of changing project files.
 
-## 8\. Development Constraints for Future Sessions
+## 8. Version Control
 
-* Start by reading this file and then `MainActivity.kt`.
+Git version control has been initialized for this project.
+
+Current Git state:
+
+```text
+branch: main
+remote: origin https://github.com/OKut056/AI-PoweredPhotoGallery.git
+```
+
+The GitHub repository was created with an Android `.gitignore`. Build outputs and local machine files such as `app/build/`, `.gradle/`, `.idea/`, `.kotlin/`, and `local.properties` should not be committed.
+
+Useful daily Git flow:
+
+```powershell
+git status
+git add .
+git commit -m "Describe the change"
+git push
+```
+
+For larger feature work, prefer a feature branch from `main`, for example:
+
+```powershell
+git switch main
+git pull
+git switch -c feature/settings-page
+```
+
+Then commit and push that branch:
+
+```powershell
+git add .
+git commit -m "Add settings page"
+git push -u origin feature/settings-page
+```
+
+Keep `main` as the stable branch that should compile.
+
+## 9\. Development Constraints for Future Sessions
+
+* Start by reading this file, then inspect `MainActivity.kt`, `GalleryModels.kt`, `GalleryStorage.kt`, and the screen file relevant to the task.
 * Do not bring back fake albums or fake thumbnails unless the user asks for mock data.
 * Keep changes small and product-visible.
 * Prefer Compose/native Android APIs before adding dependencies.
 * If adding Coil later, use it only to simplify real image/video loading and caching.
 * If adding Room later, use it only once the app needs persistent indexing/search/AI metadata.
+* If adding video later, use Android media APIs / Media3 rather than implementing playback or codecs manually.
+* Do not build custom native image/video codecs. The app should rely on Android, device hardware codecs, and mature libraries for decoding/rendering.
 * Be careful with destructive file operations. The user is testing with real pushed media.
 * If web references are needed for OriginOS/iQOO UI, search directly. If nothing reliable is found, say so and rely on user screenshots.
 * Current screenshots from the user should be treated as stronger UI references than guesses from web results.
 
-## 9\. Quick Mental Model
+## 10\. Quick Mental Model
 
 This is currently a functional local-folder gallery prototype:
 
@@ -282,7 +332,7 @@ PC media files
 The app is not yet a full Android gallery replacement. The next stage is making the existing real-file UI actions actually operate on those files in a reversible, testable way.
 
 
-## 10. Cross-Session Handoff Rules
+## 11. Cross-Session Handoff Rules
 
 This section exists because the user may switch between multiple Codex conversations. Every future session should follow these rules.
 
@@ -290,7 +340,7 @@ This section exists because the user may switch between multiple Codex conversat
 
 1. Read `PROJECT_CONTEXT.md` first.
 2. Read `NEXT_SESSION.md` if it exists.
-3. Inspect the current code, especially `MainActivity.kt` and `AndroidManifest.xml`.
+3. Inspect the current code, especially `MainActivity.kt`, `GalleryStorage.kt`, `GalleryScreens.kt`, and `AndroidManifest.xml`.
 4. Only then decide the next change.
 
 Do not rely on chat memory from another conversation. Treat the Markdown files and current code as the source of truth.
@@ -342,14 +392,14 @@ Last updated: YYYY-MM-DD
 
 ### Git/GitHub guidance
 
-Git is recommended for recording code history, but it does not replace these Markdown handoff files.
+Git is active and connected to GitHub, but it does not replace these Markdown handoff files.
 
 * Use Git commits to record exact code changes.
-* Use GitHub if the user wants backup, sync across machines, or easier review.
+* Use GitHub for backup, sync across machines, and easier review.
 * Use `PROJECT_CONTEXT.md` to record product intent and decisions that are not obvious from code.
 * Use `NEXT_SESSION.md` to record temporary in-progress state between conversations.
-
-If this folder is not already a Git repository, do not run `git init` or connect GitHub unless the user explicitly asks.
+* Before changing code, check `git status` so user changes are not accidentally mixed into unrelated work.
+* Do not rewrite history, force-push, reset, or discard user changes unless the user explicitly asks.
 
 ### Language preference
 
