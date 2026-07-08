@@ -12,7 +12,6 @@ val Accent = Color(0xFFE7B900)
 val SoftLine = Color(0xFFECECEC)
 val Ink = Color(0xFF202020)
 val Muted = Color(0xFF9A9A9A)
-const val GalleryRootName = "GalleryTest"
 const val AllAlbumName = "\u5168\u90e8\u9879\u76ee"
 
 enum class AppDestination(val label: String, val icon: ImageVector) {
@@ -28,6 +27,7 @@ enum class PhotoDensity(val columns: Int) {
 }
 
 enum class AlbumCreateResult { Created, AlreadyExists, Failed }
+
 
 data class GalleryData(
     val photos: List<PhotoItem> = emptyList(),
@@ -47,7 +47,9 @@ data class PhotoItem(
 )
 data class PhotoSection(val title: String, val photos: List<PhotoItem>)
 data class AlbumItem(val name: String, val count: Int, val cover: PhotoItem? = null, val colors: List<Color> = emptyList())
-data class RestoreResult(val restored: Int, val needsRootConfirmation: Boolean = false)
+data class RestoreResult(val restored: Int)
+data class ImportResult(val imported: Int, val skipped: Int = 0)
+data class DeleteRequest(val mediaUris: List<Uri> = emptyList(), val localMoved: Int = 0, val skipped: Int = 0)
 
 val palette = listOf(
     Color(0xFFC45A8B), Color(0xFFE6C66D), Color(0xFF6F8FC9), Color(0xFF2F3845),

@@ -1,4 +1,4 @@
-﻿package com.example.ai_poweredphotogallery
+package com.example.ai_poweredphotogallery
 
 import android.graphics.Bitmap
 import android.widget.Toast
@@ -116,9 +116,9 @@ fun AppBottomBar(selected: AppDestination, onSelect: (AppDestination) -> Unit) {
 @Composable
 fun PhotosScreen(
     photos: List<PhotoItem> = emptyList(),
-    hasPhotoPermission: Boolean = true,
-    onRequestPermission: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onImportFolder: () -> Unit = {},
+    onImportFiles: () -> Unit = {},
     onSelectionActiveChange: (Boolean) -> Unit = {},
     onOpenPhoto: (Long) -> Unit = {},
     albums: List<AlbumItem> = emptyList(),
@@ -171,11 +171,8 @@ fun PhotosScreen(
                 )
             }
             when {
-                !hasPhotoPermission -> item(span = { GridItemSpan(maxLineSpan) }) {
-                    EmptyState("\u9700\u8981\u7167\u7247\u6743\u9650\u8bfb\u53d6 /sdcard/Pictures/" + GalleryRootName, "\u5141\u8bb8\u8bbf\u95ee\u7167\u7247", onRequestPermission)
-                }
                 photos.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) {
-                    EmptyState("\u8bf7\u628a\u56fe\u7247\u63a8\u9001\u5230 /sdcard/Pictures/" + GalleryRootName, null, {})
+                    EmptyState("\u8f6f\u4ef6\u5a92\u4f53\u5de5\u4f5c\u533a\u6682\u65e0\u56fe\u7247", "\u5bfc\u5165\u6587\u4ef6\u5939", onImportFolder)
                 }
                 else -> sections.forEach { section ->
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -444,10 +441,11 @@ fun RecentDeletedScreen(
     photos: List<PhotoItem>,
     onBack: () -> Unit,
     onRestorePhotos: (Set<Long>) -> Unit,
-    onPermanentDelete: () -> Unit,
+    onPermanentDelete: (Set<Long>) -> Unit,
 ) {
     var selecting by rememberSaveable { mutableStateOf(false) }
     var selectedIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
+    var pendingPermanentDeleteIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
 
     LaunchedEffect(selecting, selectedIds.size) {
         if (selecting && selectedIds.isEmpty()) selecting = false
@@ -494,9 +492,22 @@ fun RecentDeletedScreen(
                     selectedIds = emptySet()
                     selecting = false
                 },
-                onPermanentDelete = onPermanentDelete,
+                onPermanentDelete = { pendingPermanentDeleteIds = selectedIds },
             )
         }
+    }
+
+    if (pendingPermanentDeleteIds.isNotEmpty()) {
+        PermanentDeleteConfirmDialog(
+            count = pendingPermanentDeleteIds.size,
+            onDismiss = { pendingPermanentDeleteIds = emptySet() },
+            onConfirm = {
+                onPermanentDelete(pendingPermanentDeleteIds)
+                pendingPermanentDeleteIds = emptySet()
+                selectedIds = emptySet()
+                selecting = false
+            }
+        )
     }
 }
 @Composable
@@ -725,6 +736,55 @@ fun PlaceholderScreen(title: String, onBack: () -> Unit) {
 }
 
 @Composable
+fun SettingsScreen(
+    scanSource: String,
+    photoCount: Int,
+    albumCount: Int,
+    deletedCount: Int,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    onImportFolder: () -> Unit = {},
+    onImportFiles: () -> Unit = {},
+) {
+    Column(Modifier.fillMaxSize().background(Color.White)) {
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 22.dp, top = 66.dp, bottom = 28.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "\u8fd4\u56de", tint = Ink, modifier = Modifier.size(34.dp)) }
+            Text("\u8bbe\u7f6e", fontWeight = FontWeight.Bold, fontSize = 30.sp, color = Ink)
+        }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            SettingsRow("\u626b\u63cf\u6765\u6e90", scanSource)
+            SettingsRow("\u5df2\u626b\u63cf", "\u56fe\u7247 $photoCount \u5f20\u00a0\u00a0\u76f8\u518c $albumCount \u4e2a\u00a0\u00a0\u6700\u8fd1\u5220\u9664 $deletedCount \u5f20")
+            SettingsRow("\u6743\u9650", "\u4e0d\u8bfb\u53d6\u7cfb\u7edf\u76f8\u518c\uff0c\u4ec5\u7ba1\u7406\u8f6f\u4ef6\u76ee\u5f55")
+            TextButton(
+                onClick = onImportFolder,
+                colors = ButtonDefaults.textButtonColors(contentColor = Accent),
+                contentPadding = PaddingValues(horizontal = 0.dp),
+            ) { Text("\u5bfc\u5165\u6587\u4ef6\u5939", fontSize = 20.sp) }
+            TextButton(
+                onClick = onImportFiles,
+                colors = ButtonDefaults.textButtonColors(contentColor = Accent),
+                contentPadding = PaddingValues(horizontal = 0.dp),
+            ) { Text("\u5bfc\u5165\u56fe\u7247 / \u89c6\u9891", fontSize = 20.sp) }
+            TextButton(
+                onClick = onRefresh,
+                colors = ButtonDefaults.textButtonColors(contentColor = Accent),
+                contentPadding = PaddingValues(horizontal = 0.dp),
+            ) { Text("\u5237\u65b0 / \u91cd\u65b0\u626b\u63cf", fontSize = 20.sp) }
+        }
+    }
+}
+
+@Composable
+private fun SettingsRow(label: String, value: String) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(label, color = Muted, fontSize = 15.sp)
+        Spacer(Modifier.height(6.dp))
+        Text(value, color = Ink, fontSize = 18.sp, lineHeight = 24.sp)
+    }
+}
+
+
+@Composable
 private fun PageHeader(title: String, actions: @Composable RowScope.() -> Unit) {
     Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 22.dp, top = 66.dp, bottom = 46.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, fontFamily = FontFamily.Cursive, fontWeight = FontWeight.Bold, fontSize = 42.sp, color = Color.Black)
@@ -938,6 +998,17 @@ private fun MoveToAlbumDialog(albums: List<AlbumItem>, onDismiss: () -> Unit, on
 }
 
 @Composable
+private fun PermanentDeleteConfirmDialog(count: Int, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("\u6c38\u4e45\u5220\u9664\uff1f") },
+        text = { Text("\u5c06 " + count + " \u5f20\u56fe\u7247\u4ece\u8f6f\u4ef6\u6700\u8fd1\u5220\u9664\u4e2d\u6c38\u4e45\u5220\u9664\u3002") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("\u6c38\u4e45\u5220\u9664", color = Color(0xFFE53935)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("\u53d6\u6d88") } }
+    )
+}
+
+@Composable
 private fun DeleteAlbumConfirmDialog(count: Int, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -948,16 +1019,6 @@ private fun DeleteAlbumConfirmDialog(count: Int, onDismiss: () -> Unit, onConfir
     )
 }
 
-@Composable
-fun RestoreToRootConfirmDialog(count: Int, onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("\u539f\u76f8\u518c\u4e0d\u5b58\u5728") },
-        text = { Text("\u6709 " + count + " \u5f20\u56fe\u7247\u7684\u539f\u76f8\u518c\u5df2\u4e0d\u5b58\u5728\uff0c\u662f\u5426\u6062\u590d\u5230\u4e3b\u6587\u4ef6\u5939\uff1f") },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("\u6062\u590d\u5230\u4e3b\u6587\u4ef6\u5939") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("\u53d6\u6d88") } }
-    )
-}
 @Composable
 private fun DeleteConfirmDialog(count: Int, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(

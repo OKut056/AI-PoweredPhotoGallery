@@ -18,10 +18,10 @@ class ExampleInstrumentedTest {
     }
 
     @Test
-    fun restoreDeletedAlbumPhotoToRecreatedSameNameAlbum() {
+    fun restoreDeletedAlbumPhotoRecreatesMissingAlbum() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val albumName = "codex_probe_restore_${System.currentTimeMillis()}"
-        val root = galleryRoot().apply { mkdirs() }
+        val root = galleryRoot(context).apply { mkdirs() }
         val albumDir = File(root, albumName).apply { mkdirs() }
         val photo = File(albumDir, "probe.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
 
@@ -31,14 +31,12 @@ class ExampleInstrumentedTest {
         assertFalse(photo.exists())
         assertFalse(albumDir.exists())
 
-        assertEquals(AlbumCreateResult.Created, createAlbumFolder(albumName))
         val deletedData = loadGalleryData(context)
         val deletedPhoto = deletedData.deletedPhotos.single { it.name == "probe.jpg" }
         assertEquals("$albumName/probe.jpg", deletedPhoto.originalRelativePath)
 
         val result = restoreDeletedPhotos(context, deletedData.deletedPhotos, setOf(deletedPhoto.id))
         assertEquals(1, result.restored)
-        assertFalse(result.needsRootConfirmation)
         assertTrue(File(root, "$albumName/probe.jpg").isFile)
         File(root, albumName).deleteRecursively()
     }
@@ -48,7 +46,7 @@ class ExampleInstrumentedTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val albumName = "codex_probe_logical_${System.currentTimeMillis()}"
         val fileName = "$albumName.jpg"
-        val root = galleryRoot().apply { mkdirs() }
+        val root = galleryRoot(context).apply { mkdirs() }
         val albumDir = File(root, albumName).apply { mkdirs() }
         val rootPhoto = File(root, fileName).apply { writeBytes(byteArrayOf(4, 5, 6)) }
         val indexFile = File(File(context.filesDir, ".recent_deleted").apply { mkdirs() }, "trash_index.tsv")
@@ -62,7 +60,6 @@ class ExampleInstrumentedTest {
             val result = restoreDeletedPhotos(context, deletedData.deletedPhotos, setOf(deletedPhoto.id))
 
             assertEquals(1, result.restored)
-            assertFalse(result.needsRootConfirmation)
             assertFalse(rootPhoto.exists())
             assertTrue(File(albumDir, fileName).isFile)
         } finally {
@@ -72,10 +69,32 @@ class ExampleInstrumentedTest {
         }
     }
     @Test
+    fun deleteTopLevelImportedFolderAlbumRemovesNestedEmptyFolders() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val albumName = "codex_probe_nested_${System.currentTimeMillis()}"
+        val root = galleryRoot(context).apply { mkdirs() }
+        val nestedDir = File(root, "$albumName/Sub").apply { mkdirs() }
+        val photo = File(nestedDir, "probe.jpg").apply { writeBytes(byteArrayOf(10, 11, 12)) }
+
+        val initialData = loadGalleryData(context)
+        val nestedPhoto = initialData.photos.single { it.name == "probe.jpg" }
+        assertEquals(albumName, nestedPhoto.albumName)
+
+        val moved = deleteAlbumsToRecentDeleted(context, initialData.photos, setOf(albumName))
+        assertEquals(1, moved)
+        assertFalse(photo.exists())
+        assertFalse(File(root, albumName).exists())
+
+        val deletedData = loadGalleryData(context)
+        val deletedPhoto = deletedData.deletedPhotos.single { it.name == "probe.jpg" }
+        assertEquals("$albumName/Sub/probe.jpg", deletedPhoto.originalRelativePath)
+        permanentlyDeletePhotos(context, deletedData.deletedPhotos, setOf(deletedPhoto.id))
+    }
+    @Test
     fun movePhotoToAlbumMovesPhysicalFile() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val albumName = "codex_probe_move_${System.currentTimeMillis()}"
-        val root = galleryRoot().apply { mkdirs() }
+        val root = galleryRoot(context).apply { mkdirs() }
         val source = File(root, "$albumName.jpg").apply { writeBytes(byteArrayOf(7, 8, 9)) }
         File(root, albumName).apply { mkdirs() }
 

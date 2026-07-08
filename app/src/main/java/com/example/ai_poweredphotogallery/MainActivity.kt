@@ -1,14 +1,9 @@
 package com.example.ai_poweredphotogallery
 
-import android.Manifest
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -22,15 +17,16 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
-import androidx.core.content.ContextCompat
 import com.example.ai_poweredphotogallery.ui.theme.AIPoweredPhotoGalleryTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
@@ -40,6 +36,9 @@ class MainActivity : ComponentActivity() {
         setContent { AIPoweredPhotoGalleryTheme { AIPoweredPhotoGalleryApp() } }
     }
 }
+
+private fun scanSourceText(context: android.content.Context): String =
+    "\u8f6f\u4ef6\u5a92\u4f53\u5de5\u4f5c\u533a\n" + galleryRoot(context).absolutePath
 
 @PreviewScreenSizes
 @Composable
@@ -52,35 +51,64 @@ fun AIPoweredPhotoGalleryApp() {
     var viewerPhotoId by rememberSaveable { mutableStateOf<Long?>(null) }
     var showSortSheet by rememberSaveable { mutableStateOf(false) }
     var refreshTick by rememberSaveable { mutableStateOf(0) }
-    var requestedFileManagementPermission by rememberSaveable { mutableStateOf(false) }
-    var pendingRestoreToRootIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
     var data by remember { mutableStateOf(GalleryData()) }
     var hasSelection by rememberSaveable { mutableStateOf(false) }
-    var hasPhotoPermission by remember {
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED)
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        hasPhotoPermission = granted
+    val scope = rememberCoroutineScope()
+
+    fun showImportResult(result: ImportResult) {
         refreshTick++
-    }
-    val fileManagementLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        refreshTick++
+        val message = if (result.skipped > 0) {
+            "\u5df2\u5bfc\u5165 " + result.imported + " \u4e2a\uff0c\u8df3\u8fc7 " + result.skipped + " \u4e2a"
+        } else {
+            "\u5df2\u5bfc\u5165 " + result.imported + " \u4e2a"
+        }
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 
-    LaunchedEffect(Unit) {
-        ensureGalleryRoot()
-        if (!hasPhotoPermission) permissionLauncher.launch(Manifest.permission.READ_MEDIA_IMAGES)
-        if (!Environment.isExternalStorageManager() && !requestedFileManagementPermission) {
-            requestedFileManagementPermission = true
-            val appSettings = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${context.packageName}"))
-            runCatching { fileManagementLauncher.launch(appSettings) }
-                .onFailure { fileManagementLauncher.launch(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
+    val importFolderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch {
+            showImportResult(withContext(Dispatchers.IO) { importMediaFolder(context, uri) })
         }
     }
-    LaunchedEffect(hasPhotoPermission, refreshTick) {
-        data = if (hasPhotoPermission) withContext(Dispatchers.IO) { loadGalleryData(context) } else GalleryData()
+    val importFilesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            showImportResult(withContext(Dispatchers.IO) { importMediaFiles(context, uris) })
+        }
+    }
+
+    fun deletePhotos(ids: Set<Long>, closeViewer: Boolean = false) {
+        val request = prepareDeleteRequest(context, data.photos, ids)
+        if (request.localMoved > 0) refreshTick++
+        if (closeViewer) {
+            viewerPhotoId = null
+            viewerAlbum = null
+        }
+        val message = if (request.localMoved > 0) {
+            "\u5df2\u79fb\u5230\u6700\u8fd1\u5220\u9664\uff1a" + request.localMoved + " \u5f20"
+        } else {
+            "\u9009\u4e2d\u56fe\u7247\u6682\u4e0d\u652f\u6301\u5220\u9664"
+        }
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+
+    LaunchedEffect(Unit) { ensureGalleryRoot(context) }
+    LaunchedEffect(refreshTick) {
+        data = withContext(Dispatchers.IO) { loadGalleryData(context) }
     }
     LaunchedEffect(destination, openedAlbum, openedPage, viewerPhotoId) { hasSelection = false }
+
+    BackHandler(enabled = viewerPhotoId != null || openedPage != null || openedAlbum != null) {
+        when {
+            viewerPhotoId != null -> {
+                viewerPhotoId = null
+                viewerAlbum = null
+            }
+            openedPage != null -> openedPage = null
+            openedAlbum != null -> openedAlbum = null
+        }
+    }
 
     Scaffold(
         containerColor = Color.White,
@@ -92,13 +120,7 @@ fun AIPoweredPhotoGalleryApp() {
                     photos = photosForAlbum(viewerAlbum ?: AllAlbumName, data.photos),
                     photoId = viewerPhotoId ?: 0L,
                     onBack = { viewerPhotoId = null; viewerAlbum = null },
-                    onDeletePhoto = { id ->
-                        val moved = movePhotosToRecentDeleted(context, data.photos, setOf(id))
-                        refreshTick++
-                        viewerPhotoId = null
-                        viewerAlbum = null
-                        Toast.makeText(context, "\u5df2\u79fb\u5230\u6700\u8fd1\u5220\u9664\uff1a" + moved + " \u5f20", Toast.LENGTH_SHORT).show()
-                    }
+                    onDeletePhoto = { id -> deletePhotos(setOf(id), closeViewer = true) }
                 )
                 openedPage == "\u6700\u8fd1\u5220\u9664" -> RecentDeletedScreen(
                     photos = data.deletedPhotos,
@@ -106,15 +128,26 @@ fun AIPoweredPhotoGalleryApp() {
                     onRestorePhotos = { ids ->
                         val result = restoreDeletedPhotos(context, data.deletedPhotos, ids)
                         refreshTick++
-                        if (result.needsRootConfirmation) {
-                            pendingRestoreToRootIds = ids
-                        } else {
-                            Toast.makeText(context, "\u5df2\u6062\u590d " + result.restored + " \u5f20\u56fe\u7247", Toast.LENGTH_SHORT).show()
-                        }
+                        Toast.makeText(context, "\u5df2\u6062\u590d " + result.restored + " \u5f20\u56fe\u7247", Toast.LENGTH_SHORT).show()
                     },
-                    onPermanentDelete = {
-                        Toast.makeText(context, "\u6c38\u4e45\u5220\u9664\u529f\u80fd\u5360\u4f4d", Toast.LENGTH_SHORT).show()
+                    onPermanentDelete = { ids ->
+                        val deleted = permanentlyDeletePhotos(context, data.deletedPhotos, ids)
+                        refreshTick++
+                        Toast.makeText(context, "\u5df2\u6c38\u4e45\u5220\u9664 " + deleted + " \u5f20\u56fe\u7247", Toast.LENGTH_SHORT).show()
                     }
+                )
+                openedPage == "\u8bbe\u7f6e" -> SettingsScreen(
+                    scanSource = scanSourceText(context),
+                    photoCount = data.photos.size,
+                    albumCount = (data.albums.size - 1).coerceAtLeast(0),
+                    deletedCount = data.deletedPhotos.size,
+                    onBack = { openedPage = null },
+                    onRefresh = {
+                        refreshTick++
+                        Toast.makeText(context, "\u5df2\u91cd\u65b0\u626b\u63cf", Toast.LENGTH_SHORT).show()
+                    },
+                    onImportFolder = { importFolderLauncher.launch(null) },
+                    onImportFiles = { importFilesLauncher.launch(arrayOf("image/*", "video/*")) }
                 )
                 openedPage != null -> PlaceholderScreen(openedPage.orEmpty(), onBack = { openedPage = null })
                 openedAlbum != null -> AlbumDetailScreen(
@@ -126,11 +159,7 @@ fun AIPoweredPhotoGalleryApp() {
                     onSelectionActiveChange = { hasSelection = it },
                     onOpenPhoto = { id -> viewerAlbum = openedAlbum.orEmpty(); viewerPhotoId = id },
                     albums = data.albums,
-                    onDeletePhotos = { ids ->
-                        val moved = movePhotosToRecentDeleted(context, data.photos, ids)
-                        refreshTick++
-                        Toast.makeText(context, "\u5df2\u79fb\u5230\u6700\u8fd1\u5220\u9664\uff1a" + moved + " \u5f20", Toast.LENGTH_SHORT).show()
-                    },
+                    onDeletePhotos = { ids -> deletePhotos(ids) },
                     onMovePhotos = { ids, albumName ->
                         val moved = movePhotosToAlbum(context, data.photos, ids, albumName)
                         refreshTick++
@@ -139,17 +168,13 @@ fun AIPoweredPhotoGalleryApp() {
                 )
                 destination == AppDestination.Photos -> PhotosScreen(
                     photos = data.photos,
-                    hasPhotoPermission = hasPhotoPermission,
-                    onRequestPermission = { permissionLauncher.launch(Manifest.permission.READ_MEDIA_IMAGES) },
                     onOpenSettings = { openedPage = "\u8bbe\u7f6e" },
+                    onImportFolder = { importFolderLauncher.launch(null) },
+                    onImportFiles = { importFilesLauncher.launch(arrayOf("image/*", "video/*")) },
                     onSelectionActiveChange = { hasSelection = it },
                     onOpenPhoto = { id -> viewerAlbum = AllAlbumName; viewerPhotoId = id },
                     albums = data.albums,
-                    onDeletePhotos = { ids ->
-                        val moved = movePhotosToRecentDeleted(context, data.photos, ids)
-                        refreshTick++
-                        Toast.makeText(context, "\u5df2\u79fb\u5230\u6700\u8fd1\u5220\u9664\uff1a" + moved + " \u5f20", Toast.LENGTH_SHORT).show()
-                    },
+                    onDeletePhotos = { ids -> deletePhotos(ids) },
                     onMovePhotos = { ids, albumName ->
                         val moved = movePhotosToAlbum(context, data.photos, ids, albumName)
                         refreshTick++
@@ -164,12 +189,17 @@ fun AIPoweredPhotoGalleryApp() {
                     onOpenDeleted = { openedPage = "\u6700\u8fd1\u5220\u9664" },
                     onSelectionActiveChange = { hasSelection = it },
                     onDeleteAlbums = { names ->
-                        val moved = deleteAlbumsToRecentDeleted(context, data.photos, names)
-                        refreshTick++
-                        Toast.makeText(context, "\u5df2\u5220\u9664\u76f8\u518c\uff0c\u79fb\u5165\u6700\u8fd1\u5220\u9664\uff1a" + moved + " \u5f20", Toast.LENGTH_SHORT).show()
+                        val photoIds = data.photos.filter { it.albumName in names }.map { it.id }.toSet()
+                        if (photoIds.isNotEmpty()) deletePhotos(photoIds)
+                        val removedFolders = deleteEmptyAlbumFolders(context, names)
+                        if (removedFolders > 0) refreshTick++
+                        if (photoIds.isEmpty()) {
+                            val message = if (removedFolders > 0) "\u5df2\u5220\u9664\u7a7a\u76f8\u518c" else "\u9009\u4e2d\u76f8\u518c\u6682\u65e0\u53ef\u5220\u9664\u56fe\u7247"
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        }
                     },
                     onCreateAlbum = { name ->
-                        when (createAlbumFolder(name)) {
+                        when (createAlbumFolder(context, name)) {
                             AlbumCreateResult.Created -> {
                                 refreshTick++
                                 Toast.makeText(context, "\u5df2\u521b\u5efa\u76f8\u518c\uff1a" + name, Toast.LENGTH_SHORT).show()
@@ -185,17 +215,4 @@ fun AIPoweredPhotoGalleryApp() {
     }
 
     if (showSortSheet) SortSheet(onDismiss = { showSortSheet = false })
-
-    if (pendingRestoreToRootIds.isNotEmpty()) {
-        RestoreToRootConfirmDialog(
-            count = pendingRestoreToRootIds.size,
-            onDismiss = { pendingRestoreToRootIds = emptySet() },
-            onConfirm = {
-                val result = restoreDeletedPhotos(context, data.deletedPhotos, pendingRestoreToRootIds, restoreMissingAlbumsToRoot = true)
-                refreshTick++
-                pendingRestoreToRootIds = emptySet()
-                Toast.makeText(context, "\u5df2\u6062\u590d " + result.restored + " \u5f20\u56fe\u7247", Toast.LENGTH_SHORT).show()
-            }
-        )
-    }
 }
