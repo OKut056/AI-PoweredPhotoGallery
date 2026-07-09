@@ -1,5 +1,6 @@
 package com.example.ai_poweredphotogallery
 
+import androidx.activity.compose.BackHandler
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
@@ -151,9 +152,10 @@ fun PhotosScreen(
     val sections = remember(photos) { photoSections(photos) }
     val currentDate = currentDateFor(gridState, sections)
 
-    LaunchedEffect(selecting, selectedIds.size) {
-        if (selecting && selectedIds.isEmpty()) selecting = false
-        onSelectionActiveChange(selecting && selectedIds.isNotEmpty())
+    LaunchedEffect(selecting) { onSelectionActiveChange(selecting) }
+    BackHandler(enabled = selecting) {
+        selecting = false
+        selectedIds = emptySet()
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.White)) {
@@ -173,17 +175,25 @@ fun PhotosScreen(
             }
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                PageHeader(
-                    title = if (selecting) "\u5df2\u9009 " + selectedIds.size else "\u7167\u7247",
-                    actions = {
-                        HeaderIcon(Icons.Default.Search, "\u641c\u7d22", onSearch)
-                        HeaderIcon(Icons.Default.Check, if (selecting) "\u5b8c\u6210" else "\u9009\u62e9") {
-                            selecting = !selecting
-                            if (!selecting) selectedIds = emptySet()
+                if (selecting) {
+                    SelectionModeHeader(
+                        selectedCount = selectedIds.size,
+                        onSelectAll = { selectedIds = photos.map { it.id }.toSet() },
+                        onCancel = {
+                            selecting = false
+                            selectedIds = emptySet()
                         }
-                        MoreMenu(onSettings = onOpenSettings)
-                    }
-                )
+                    )
+                } else {
+                    PageHeader(
+                        title = "\u7167\u7247",
+                        actions = {
+                            HeaderIcon(Icons.Default.Search, "\u641c\u7d22", onSearch)
+                            HeaderIcon(Icons.Default.Check, "\u9009\u62e9") { selecting = true }
+                            MoreMenu(onSettings = onOpenSettings)
+                        }
+                    )
+                }
             }
             when {
                 photos.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) {
@@ -270,26 +280,42 @@ fun AlbumsScreen(
     var pendingDeleteAlbums by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var showCreateAlbum by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(selecting, selectedAlbums.size) {
-        if (selecting && selectedAlbums.isEmpty()) selecting = false
-        onSelectionActiveChange(selecting && selectedAlbums.isNotEmpty())
+    LaunchedEffect(selecting) { onSelectionActiveChange(selecting) }
+    BackHandler(enabled = selecting) {
+        selecting = false
+        selectedAlbums = emptySet()
+    }
+
+    val selectedAlbumMediaCount = if (AllAlbumName in selectedAlbums) {
+        data.albums.firstOrNull { it.name == AllAlbumName }?.count ?: data.photos.size
+    } else {
+        data.albums.filter { it.name in selectedAlbums }.sumOf { it.count }
     }
 
     Box(Modifier.fillMaxSize().background(Color.White)) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 92.dp)) {
             item {
-                PageHeader(
-                    title = if (selecting) "\u5df2\u9009 " + selectedAlbums.size else "\u76f8\u518c",
-                    actions = {
-                        HeaderIcon(Icons.Default.Search, "\u641c\u7d22", onSearch)
-                        HeaderIcon(Icons.Default.Check, if (selecting) "\u5b8c\u6210" else "\u9009\u62e9") {
-                            selecting = !selecting
-                            if (!selecting) selectedAlbums = emptySet()
+                if (selecting) {
+                    SelectionModeHeader(
+                        selectedCount = selectedAlbums.size,
+                        subtitle = "\u5171" + selectedAlbumMediaCount + "\u4e2a\u56fe\u7247/\u89c6\u9891",
+                        onSelectAll = { selectedAlbums = data.albums.map { it.name }.toSet() },
+                        onCancel = {
+                            selecting = false
+                            selectedAlbums = emptySet()
                         }
-                        HeaderIcon(Icons.Default.Add, "\u65b0\u5efa") { showCreateAlbum = true }
-                        MoreMenu(onSettings = onOpenSettings)
-                    }
-                )
+                    )
+                } else {
+                    PageHeader(
+                        title = "\u76f8\u518c",
+                        actions = {
+                            HeaderIcon(Icons.Default.Search, "\u641c\u7d22", onSearch)
+                            HeaderIcon(Icons.Default.Check, "\u9009\u62e9") { selecting = true }
+                            HeaderIcon(Icons.Default.Add, "\u65b0\u5efa") { showCreateAlbum = true }
+                            MoreMenu(onSettings = onOpenSettings)
+                        }
+                    )
+                }
             }
             item {
                 AlbumGrid(
@@ -373,9 +399,10 @@ fun AlbumDetailScreen(
     var pendingDeleteIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
     var pendingMoveIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
 
-    LaunchedEffect(selecting, selectedIds.size) {
-        if (selecting && selectedIds.isEmpty()) selecting = false
-        onSelectionActiveChange(selecting && selectedIds.isNotEmpty())
+    LaunchedEffect(selecting) { onSelectionActiveChange(selecting) }
+    BackHandler(enabled = selecting) {
+        selecting = false
+        selectedIds = emptySet()
     }
 
     Box(Modifier.fillMaxSize().background(Color.White)) {
@@ -386,7 +413,20 @@ fun AlbumDetailScreen(
             verticalArrangement = Arrangement.spacedBy(3.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            item(span = { GridItemSpan(maxLineSpan) }) { DetailHeader(if (selecting) "\u5df2\u9009 " + selectedIds.size else albumName, onBack, onOpenSettings) }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                if (selecting) {
+                    SelectionModeHeader(
+                        selectedCount = selectedIds.size,
+                        onSelectAll = { selectedIds = photos.map { it.id }.toSet() },
+                        onCancel = {
+                            selecting = false
+                            selectedIds = emptySet()
+                        }
+                    )
+                } else {
+                    DetailHeader(albumName, onBack, onOpenSettings) { selecting = true }
+                }
+            }
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 22.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("\u2193", fontSize = 28.sp, color = Ink)
@@ -463,8 +503,9 @@ fun RecentDeletedScreen(
     var selectedIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
     var pendingPermanentDeleteIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
 
-    LaunchedEffect(selecting, selectedIds.size) {
-        if (selecting && selectedIds.isEmpty()) selecting = false
+    BackHandler(enabled = selecting) {
+        selecting = false
+        selectedIds = emptySet()
     }
 
     Box(Modifier.fillMaxSize().background(Color.White)) {
@@ -476,7 +517,18 @@ fun RecentDeletedScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                DetailHeader(if (selecting) "\u5df2\u9009 " + selectedIds.size else "\u6700\u8fd1\u5220\u9664", onBack)
+                if (selecting) {
+                    SelectionModeHeader(
+                        selectedCount = selectedIds.size,
+                        onSelectAll = { selectedIds = photos.map { it.id }.toSet() },
+                        onCancel = {
+                            selecting = false
+                            selectedIds = emptySet()
+                        }
+                    )
+                } else {
+                    DetailHeader("\u6700\u8fd1\u5220\u9664", onBack) { selecting = true }
+                }
             }
             if (photos.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) { EmptyState("\u6682\u65e0\u6700\u8fd1\u5220\u9664\u7684\u5a92\u4f53", null, {}) }
@@ -840,6 +892,18 @@ private fun SettingsRow(label: String, value: String) {
 
 
 @Composable
+private fun SelectionModeHeader(selectedCount: Int, subtitle: String? = null, onSelectAll: () -> Unit, onCancel: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 22.dp, top = 66.dp, bottom = 42.dp), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = onSelectAll) { Text("\u5168\u9009", color = Ink, fontSize = 18.sp) }
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("\u5df2\u9009\u62e9" + selectedCount + "\u9879", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            subtitle?.let { Text(it, color = Muted, fontSize = 13.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
+        }
+        TextButton(onClick = onCancel) { Text("\u53d6\u6d88", color = Ink, fontSize = 18.sp) }
+    }
+}
+
+@Composable
 private fun PageHeader(title: String, actions: @Composable RowScope.() -> Unit) {
     Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 22.dp, top = 66.dp, bottom = 46.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, fontFamily = FontFamily.Cursive, fontWeight = FontWeight.Bold, fontSize = 42.sp, color = Color.Black)
@@ -849,12 +913,12 @@ private fun PageHeader(title: String, actions: @Composable RowScope.() -> Unit) 
 }
 
 @Composable
-private fun DetailHeader(albumName: String, onBack: () -> Unit, onOpenSettings: () -> Unit = {}) {
+private fun DetailHeader(albumName: String, onBack: () -> Unit, onOpenSettings: () -> Unit = {}, onSelect: () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 22.dp, top = 66.dp, bottom = 42.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "\u8fd4\u56de", tint = Ink, modifier = Modifier.size(34.dp)) }
         Text(albumName, fontWeight = FontWeight.Bold, fontSize = 26.sp, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.weight(1f))
-        HeaderIcon(Icons.Default.Check, "\u9009\u62e9")
+        HeaderIcon(Icons.Default.Check, "\u9009\u62e9", onSelect)
         MoreMenu(onSettings = onOpenSettings)
     }
 }

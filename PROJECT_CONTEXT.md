@@ -31,6 +31,14 @@ Last updated: 2026-07-09
 - Files directly under `Media` appear in all items, not as a separate folder album.
 - Hidden folders and dot-prefixed folders are ignored.
 
+## Selection Behavior
+
+- Selection mode must remain active even when nothing is selected.
+- In selection mode, the top bar shows `全选`, `已选择n项`, and `取消`.
+- Media grids select all visible/current media for the current screen: photos, all items, album detail, or recent deleted.
+- Album selection selects albums. The top bar also shows a muted total media count for selected albums.
+- System back exits selection mode first instead of leaving the current screen.
+
 ## Delete / Restore
 
 - Delete is app-controlled for workspace files: move to `Media/.recent_deleted`.
