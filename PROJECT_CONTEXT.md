@@ -10,7 +10,9 @@ Last updated: 2026-07-09
 - Workspace root: `Android/data/com.example.ai_poweredphotogallery/files/Media/`.
 - Use one root folder named `Media`; do not create default `Pictures` or `Movies` subfolders.
 - Do not scan the public system gallery by default. No photo/media read permission is needed for the current workspace-only flow.
-- AI search/recognition and the future short-video feed should run on this controlled workspace unless the product direction changes later.
+- The bottom `AI` tab is intentionally blank until its product design is decided.
+- Search is a separate page opened from the search buttons. Current search is local metadata search over workspace files, not image recognition.
+- Future AI recognition and the future short-video feed should run on this controlled workspace unless the product direction changes later.
 
 ## Import Rules
 
@@ -51,12 +53,14 @@ app/src/main/java/com/example/ai_poweredphotogallery/MainActivity.kt
 app/src/main/java/com/example/ai_poweredphotogallery/GalleryModels.kt
 app/src/main/java/com/example/ai_poweredphotogallery/GalleryStorage.kt
 app/src/main/java/com/example/ai_poweredphotogallery/GalleryScreens.kt
+app/src/main/java/com/example/ai_poweredphotogallery/AiSearch.kt
 app/src/main/AndroidManifest.xml
 ```
 
 ## Next Useful Tasks
 
-- Add real AI local index/search for workspace files.
+- Design the bottom `AI` tab before implementing it.
+- Add real local image/video recognition only after choosing an on-device model or indexing approach.
 - Improve placeholder actions only when the user asks for them: share, copy, edit, favorite, info, cleanup suggestions.
 
 ## Test Media

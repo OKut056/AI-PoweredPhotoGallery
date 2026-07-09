@@ -131,6 +131,7 @@ fun AppBottomBar(selected: AppDestination, onSelect: (AppDestination) -> Unit) {
 fun PhotosScreen(
     photos: List<PhotoItem> = emptyList(),
     onOpenSettings: () -> Unit = {},
+    onSearch: () -> Unit = {},
     onImportFolder: () -> Unit = {},
     onImportFiles: () -> Unit = {},
     onSelectionActiveChange: (Boolean) -> Unit = {},
@@ -175,7 +176,7 @@ fun PhotosScreen(
                 PageHeader(
                     title = if (selecting) "\u5df2\u9009 " + selectedIds.size else "\u7167\u7247",
                     actions = {
-                        HeaderIcon(Icons.Default.Search, "\u641c\u7d22")
+                        HeaderIcon(Icons.Default.Search, "\u641c\u7d22", onSearch)
                         HeaderIcon(Icons.Default.Check, if (selecting) "\u5b8c\u6210" else "\u9009\u62e9") {
                             selecting = !selecting
                             if (!selecting) selectedIds = emptySet()
@@ -255,6 +256,7 @@ fun AlbumsScreen(
     data: GalleryData = GalleryData(),
     onAlbumClick: (String) -> Unit,
     onOpenSettings: () -> Unit = {},
+    onSearch: () -> Unit = {},
     onOpenCleanup: () -> Unit = {},
     onOpenDeleted: () -> Unit = {},
     onCreateAlbum: (String) -> Unit = {},
@@ -279,7 +281,7 @@ fun AlbumsScreen(
                 PageHeader(
                     title = if (selecting) "\u5df2\u9009 " + selectedAlbums.size else "\u76f8\u518c",
                     actions = {
-                        HeaderIcon(Icons.Default.Search, "\u641c\u7d22")
+                        HeaderIcon(Icons.Default.Search, "\u641c\u7d22", onSearch)
                         HeaderIcon(Icons.Default.Check, if (selecting) "\u5b8c\u6210" else "\u9009\u62e9") {
                             selecting = !selecting
                             if (!selecting) selectedAlbums = emptySet()
@@ -732,18 +734,50 @@ fun SortSheet(onDismiss: () -> Unit) {
 }
 
 @Composable
-fun AiScreen() {
+fun SearchScreen(
+    photos: List<PhotoItem> = emptyList(),
+    onBack: () -> Unit = {},
+    onOpenPhoto: (Long) -> Unit = {},
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val results = remember(photos, query) { searchAiIndex(photos, query) }
     Column(Modifier.fillMaxSize().background(Color.White).padding(horizontal = 28.dp, vertical = 58.dp)) {
-        Text("AI", fontWeight = FontWeight.Bold, fontSize = 40.sp, color = Ink)
-        Spacer(Modifier.height(26.dp))
-        Surface(color = Color(0xFFF7F7F7), shape = RoundedCornerShape(22.dp)) {
-            Column(Modifier.fillMaxWidth().padding(22.dp)) {
-                Text("\u667a\u80fd\u52a9\u624b\u5360\u4f4d", fontWeight = FontWeight.SemiBold, fontSize = 22.sp, color = Ink)
-                Spacer(Modifier.height(8.dp))
-                Text("\u540e\u7eed\u63a5\u5165\u804a\u5929\u3001\u641c\u56fe\u3001\u6539\u56fe\u3001\u751f\u56fe\u548c\u6279\u91cf\u6574\u7406\u6807\u7b7e\u3002", color = Color(0xFF666666), fontSize = 15.sp, lineHeight = 22.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "\u8fd4\u56de", tint = Ink, modifier = Modifier.size(34.dp)) }
+            Text("\u641c\u7d22", fontWeight = FontWeight.Bold, fontSize = 34.sp, color = Ink)
+        }
+        Spacer(Modifier.height(18.dp))
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Muted) },
+            placeholder = { Text("\u641c\u7d22\u6587\u4ef6\u540d\u3001\u76f8\u518c\u3001\u56fe\u7247\u6216\u89c6\u9891") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(18.dp))
+        Text("\u672c\u5730\u7d22\u5f15 " + photos.size + " \u4e2a\u5a92\u4f53\uff0c\u547d\u4e2d " + results.size + " \u4e2a", color = Muted, fontSize = 15.sp)
+        Spacer(Modifier.height(18.dp))
+        when {
+            photos.isEmpty() -> EmptyState("\u8f6f\u4ef6\u5a92\u4f53\u5de5\u4f5c\u533a\u6682\u65e0\u53ef\u641c\u7d22\u5a92\u4f53", null, {})
+            results.isEmpty() -> EmptyState("\u6ca1\u6709\u5339\u914d\u7684\u5a92\u4f53", null, {})
+            else -> LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                items(results, key = { it.id }) { photo ->
+                    PhotoTile(photo, PhotoDensity.Normal, onClick = { onOpenPhoto(photo.id) })
+                }
             }
         }
     }
+}
+
+@Composable
+fun AiScreen() {
+    Box(Modifier.fillMaxSize().background(Color.White))
 }
 
 @Composable

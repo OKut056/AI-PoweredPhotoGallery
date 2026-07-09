@@ -14,10 +14,13 @@ Read `PROJECT_CONTEXT.md`, then inspect current code. Do not infer product rules
 - Root-level imported images show in all items, not in more albums.
 - Delete/restore/permanent delete are app-controlled inside `Media/.recent_deleted`.
 - Video import, scanning, duration overlays, thumbnails, and aspect-fit TextureView/MediaPlayer playback with draggable progress controls are implemented inside the same `Media` tree.
+- Search buttons open a separate search page. Search currently matches file name, album, path, label, and media type metadata only.
+- The bottom `AI` tab is intentionally blank; do not build it until the product design is decided.
 
 ## Next Useful Tasks
 
-- Add local AI indexing/search for workspace files.
+- Design the bottom `AI` tab before implementing it.
+- Add real local image/video recognition only after choosing an on-device model or indexing approach.
 - Replace placeholder actions only when requested.
 
 ## Before Coding

@@ -136,6 +136,11 @@ fun AIPoweredPhotoGalleryApp() {
                         Toast.makeText(context, "\u5df2\u6c38\u4e45\u5220\u9664 " + deleted + " \u4e2a\u5a92\u4f53", Toast.LENGTH_SHORT).show()
                     }
                 )
+                openedPage == "\u641c\u7d22" -> SearchScreen(
+                    photos = data.photos,
+                    onBack = { openedPage = null },
+                    onOpenPhoto = { id -> viewerAlbum = AllAlbumName; viewerPhotoId = id },
+                )
                 openedPage == "\u8bbe\u7f6e" -> SettingsScreen(
                     scanSource = scanSourceText(context),
                     photoCount = data.photos.size,
@@ -169,6 +174,7 @@ fun AIPoweredPhotoGalleryApp() {
                 destination == AppDestination.Photos -> PhotosScreen(
                     photos = data.photos,
                     onOpenSettings = { openedPage = "\u8bbe\u7f6e" },
+                    onSearch = { openedPage = "\u641c\u7d22" },
                     onImportFolder = { importFolderLauncher.launch(null) },
                     onImportFiles = { importFilesLauncher.launch(arrayOf("image/*", "video/*")) },
                     onSelectionActiveChange = { hasSelection = it },
@@ -185,6 +191,7 @@ fun AIPoweredPhotoGalleryApp() {
                     data = data,
                     onAlbumClick = { openedAlbum = it },
                     onOpenSettings = { openedPage = "\u8bbe\u7f6e" },
+                    onSearch = { openedPage = "\u641c\u7d22" },
                     onOpenCleanup = { openedPage = "\u6e05\u7406\u5efa\u8bae" },
                     onOpenDeleted = { openedPage = "\u6700\u8fd1\u5220\u9664" },
                     onSelectionActiveChange = { hasSelection = it },
