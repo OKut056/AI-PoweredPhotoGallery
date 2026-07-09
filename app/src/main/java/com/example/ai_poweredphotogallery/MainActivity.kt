@@ -86,9 +86,9 @@ fun AIPoweredPhotoGalleryApp() {
             viewerAlbum = null
         }
         val message = if (request.localMoved > 0) {
-            "\u5df2\u79fb\u5230\u6700\u8fd1\u5220\u9664\uff1a" + request.localMoved + " \u5f20"
+            "\u5df2\u79fb\u5230\u6700\u8fd1\u5220\u9664\uff1a" + request.localMoved + " \u4e2a\u5a92\u4f53"
         } else {
-            "\u9009\u4e2d\u56fe\u7247\u6682\u4e0d\u652f\u6301\u5220\u9664"
+            "\u9009\u4e2d\u5a92\u4f53\u6682\u4e0d\u652f\u6301\u5220\u9664"
         }
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
@@ -128,12 +128,12 @@ fun AIPoweredPhotoGalleryApp() {
                     onRestorePhotos = { ids ->
                         val result = restoreDeletedPhotos(context, data.deletedPhotos, ids)
                         refreshTick++
-                        Toast.makeText(context, "\u5df2\u6062\u590d " + result.restored + " \u5f20\u56fe\u7247", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "\u5df2\u6062\u590d " + result.restored + " \u4e2a\u5a92\u4f53", Toast.LENGTH_SHORT).show()
                     },
                     onPermanentDelete = { ids ->
                         val deleted = permanentlyDeletePhotos(context, data.deletedPhotos, ids)
                         refreshTick++
-                        Toast.makeText(context, "\u5df2\u6c38\u4e45\u5220\u9664 " + deleted + " \u5f20\u56fe\u7247", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "\u5df2\u6c38\u4e45\u5220\u9664 " + deleted + " \u4e2a\u5a92\u4f53", Toast.LENGTH_SHORT).show()
                     }
                 )
                 openedPage == "\u8bbe\u7f6e" -> SettingsScreen(
@@ -163,7 +163,7 @@ fun AIPoweredPhotoGalleryApp() {
                     onMovePhotos = { ids, albumName ->
                         val moved = movePhotosToAlbum(context, data.photos, ids, albumName)
                         refreshTick++
-                        Toast.makeText(context, "\u5df2\u79fb\u52a8\u5230" + albumName + "\uff1a" + moved + " \u5f20", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "\u5df2\u79fb\u52a8\u5230" + albumName + "\uff1a" + moved + " \u4e2a\u5a92\u4f53", Toast.LENGTH_SHORT).show()
                     }
                 )
                 destination == AppDestination.Photos -> PhotosScreen(
@@ -178,7 +178,7 @@ fun AIPoweredPhotoGalleryApp() {
                     onMovePhotos = { ids, albumName ->
                         val moved = movePhotosToAlbum(context, data.photos, ids, albumName)
                         refreshTick++
-                        Toast.makeText(context, "\u5df2\u79fb\u52a8\u5230" + albumName + "\uff1a" + moved + " \u5f20", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "\u5df2\u79fb\u52a8\u5230" + albumName + "\uff1a" + moved + " \u4e2a\u5a92\u4f53", Toast.LENGTH_SHORT).show()
                     }
                 )
                 destination == AppDestination.Albums -> AlbumsScreen(
@@ -194,7 +194,7 @@ fun AIPoweredPhotoGalleryApp() {
                         val removedFolders = deleteEmptyAlbumFolders(context, names)
                         if (removedFolders > 0) refreshTick++
                         if (photoIds.isEmpty()) {
-                            val message = if (removedFolders > 0) "\u5df2\u5220\u9664\u7a7a\u76f8\u518c" else "\u9009\u4e2d\u76f8\u518c\u6682\u65e0\u53ef\u5220\u9664\u56fe\u7247"
+                            val message = if (removedFolders > 0) "\u5df2\u5220\u9664\u7a7a\u76f8\u518c" else "\u9009\u4e2d\u76f8\u518c\u6682\u65e0\u53ef\u5220\u9664\u5a92\u4f53"
                             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                         }
                     },

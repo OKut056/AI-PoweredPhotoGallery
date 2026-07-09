@@ -3,13 +3,17 @@ package com.example.ai_poweredphotogallery
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
+import android.media.ThumbnailUtils
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.util.LruCache
 import android.util.Size
 import android.webkit.MimeTypeMap
 import androidx.compose.ui.graphics.Color
 import java.io.File
+import java.io.FileInputStream
 import java.util.Locale
 private const val MediaRootName = "Media"
 private const val RecentDeletedFolderName = ".recent_deleted"
@@ -247,7 +251,7 @@ fun permanentlyDeletePhotos(context: Context, photos: List<PhotoItem>, selectedI
 private fun loadPhotos(root: File, deletedOriginalPaths: Set<String>, moveIndex: Map<String, String>): List<PhotoItem> =
     root.walkTopDown()
         .onEnter { it.name != RecentDeletedFolderName }
-        .filter { it.isFile && it.extension.lowercase(Locale.ROOT) in imageExtensions }
+        .filter { it.isFile && it.extension.lowercase(Locale.ROOT) in mediaExtensions }
         .filter { isVisibleMediaPath(relativePath(root, it)) }
         .filter { relativePath(root, it) !in deletedOriginalPaths }
         .sortedByDescending { it.lastModified() }
@@ -261,13 +265,15 @@ private fun loadPhotos(root: File, deletedOriginalPaths: Set<String>, moveIndex:
                 name = file.name,
                 albumName = parent,
                 relativePath = path,
+                type = mediaType(file),
+                durationMillis = videoDurationMillis(file),
             )
         }
         .toList()
 
 private fun loadDeletedPhotos(root: File, index: Map<String, String>): List<PhotoItem> =
     index.mapNotNull { (currentPath, originalPath) ->
-        val file = File(root, currentPath).takeIf { it.isFile && it.extension.lowercase(Locale.ROOT) in imageExtensions } ?: return@mapNotNull null
+        val file = File(root, currentPath).takeIf { it.isFile && it.extension.lowercase(Locale.ROOT) in mediaExtensions } ?: return@mapNotNull null
         PhotoItem(
             id = file.absolutePath.hashCode().toLong(),
             uri = Uri.fromFile(file),
@@ -276,6 +282,8 @@ private fun loadDeletedPhotos(root: File, index: Map<String, String>): List<Phot
             albumName = "\u6700\u8fd1\u5220\u9664",
             relativePath = currentPath,
             originalRelativePath = originalPath,
+            type = mediaType(file),
+            durationMillis = videoDurationMillis(file),
         )
     }.sortedByDescending { it.dateMillis }
 
@@ -383,12 +391,36 @@ private fun isVisibleAlbumName(name: String): Boolean =
 private fun colorFallback(seed: String): List<Color> =
     if (seed.isEmpty()) palette.take(4) else List(4) { palette[(seed.hashCode() + it).mod(palette.size)] }
 
-fun loadBitmap(context: Context, uri: Uri, target: Int): Bitmap? =
-    if (uri.scheme == "file") {
+fun loadBitmap(context: Context, uri: Uri, target: Int, isVideo: Boolean = false): Bitmap? {
+    val key = thumbnailCacheKey(uri, target, isVideo)
+    synchronized(thumbnailCache) { thumbnailCache.get(key) }?.let { return it }
+    val bitmap = if (isVideo) {
+        loadVideoThumbnail(context, uri, target)
+    } else if (uri.scheme == "file") {
         decodeFileThumbnail(uri.path.orEmpty(), target)
     } else {
         runCatching { context.contentResolver.loadThumbnail(uri, Size(target, target), null) }.getOrNull()
             ?: decodeContentThumbnail(context, uri, target)
+    }
+    if (bitmap != null) synchronized(thumbnailCache) { thumbnailCache.put(key, bitmap) }
+    return bitmap
+}
+
+// ponytail: memory-only thumbnail cache; add disk cache only if cold-start decoding is still too slow.
+private val thumbnailCache = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 1024 / 8).toInt()) {
+    override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount / 1024
+}
+
+private fun thumbnailCacheKey(uri: Uri, target: Int, isVideo: Boolean): String {
+    val fileStamp = if (uri.scheme == "file") File(uri.path.orEmpty()).lastModified() else 0L
+    return uri.toString() + "|" + target + "|" + isVideo + "|" + fileStamp
+}
+
+private fun loadVideoThumbnail(context: Context, uri: Uri, target: Int): Bitmap? =
+    if (uri.scheme == "file") {
+        runCatching { ThumbnailUtils.createVideoThumbnail(File(uri.path.orEmpty()), Size(target, target), null) }.getOrNull()
+    } else {
+        runCatching { context.contentResolver.loadThumbnail(uri, Size(target, target), null) }.getOrNull()
     }
 
 private fun decodeContentThumbnail(context: Context, uri: Uri, target: Int): Bitmap? = runCatching {
@@ -406,5 +438,24 @@ private fun decodeFileThumbnail(path: String, target: Int): Bitmap? {
     return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
 }
 
+private fun mediaType(file: File): MediaType =
+    if (file.extension.lowercase(Locale.ROOT) in videoExtensions) MediaType.Video else MediaType.Image
+
+private fun videoDurationMillis(file: File): Long {
+    if (mediaType(file) != MediaType.Video) return 0L
+    return runCatching {
+        val retriever = MediaMetadataRetriever()
+        try {
+            FileInputStream(file).use { input ->
+                retriever.setDataSource(input.fd)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            }
+        } finally {
+            retriever.release()
+        }
+    }.getOrDefault(0L)
+}
+
 private val imageExtensions = setOf("jpg", "jpeg", "png", "webp", "gif")
 private val videoExtensions = setOf("mp4", "m4v", "mov", "mkv", "webm", "3gp")
+private val mediaExtensions = imageExtensions + videoExtensions

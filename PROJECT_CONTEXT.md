@@ -2,7 +2,7 @@
 
 Read this before code. Current code is the implementation truth; this file records product decisions.
 
-Last updated: 2026-07-08
+Last updated: 2026-07-09
 
 ## Product Direction
 
@@ -23,8 +23,8 @@ Last updated: 2026-07-08
 
 ## Albums And Display
 
-- The app currently displays images only: `jpg, jpeg, png, webp, gif`.
-- Video files can be imported, but video scanning/playback UI is not implemented yet.
+- The app displays images and videos inside the workspace: images `jpg, jpeg, png, webp, gif`; videos `mp4, m4v, mov, mkv, webm, 3gp`.
+- Video files are scanned, shown with duration overlays, and played in the detail viewer with an aspect-fit TextureView/MediaPlayer player, center play button, draggable progress bar, and bottom play/pause control.
 - Top-level subfolders under `Media` appear as albums / more albums.
 - Files directly under `Media` appear in all items, not as a separate folder album.
 - Hidden folders and dot-prefixed folders are ignored.
@@ -56,7 +56,6 @@ app/src/main/AndroidManifest.xml
 
 ## Next Useful Tasks
 
-- Add video scanning/playback inside the same `Media` tree.
 - Add real AI local index/search for workspace files.
 - Improve placeholder actions only when the user asks for them: share, copy, edit, favorite, info, cleanup suggestions.
 

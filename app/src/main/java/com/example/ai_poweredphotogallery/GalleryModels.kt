@@ -27,7 +27,7 @@ enum class PhotoDensity(val columns: Int) {
 }
 
 enum class AlbumCreateResult { Created, AlreadyExists, Failed }
-
+enum class MediaType { Image, Video }
 
 data class GalleryData(
     val photos: List<PhotoItem> = emptyList(),
@@ -44,7 +44,10 @@ data class PhotoItem(
     val label: String = "",
     val relativePath: String = "",
     val originalRelativePath: String = "",
+    val type: MediaType = MediaType.Image,
+    val durationMillis: Long = 0L,
 )
+val PhotoItem.isVideo: Boolean get() = type == MediaType.Video
 data class PhotoSection(val title: String, val photos: List<PhotoItem>)
 data class AlbumItem(val name: String, val count: Int, val cover: PhotoItem? = null, val colors: List<Color> = emptyList())
 data class RestoreResult(val restored: Int)

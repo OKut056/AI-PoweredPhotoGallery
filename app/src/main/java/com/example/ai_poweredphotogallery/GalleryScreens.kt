@@ -1,6 +1,18 @@
 package com.example.ai_poweredphotogallery
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.SurfaceTexture
+import android.media.MediaPlayer
+import android.os.Handler
+import android.os.Looper
+import android.view.Gravity
+import android.view.Surface
+import android.view.TextureView
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.SeekBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -85,6 +97,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.example.ai_poweredphotogallery.ui.theme.AIPoweredPhotoGalleryTheme
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -92,6 +105,7 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 @Composable
 fun AppBottomBar(selected: AppDestination, onSelect: (AppDestination) -> Unit) {
     NavigationBar(containerColor = Color(0xFFFAFAFA), tonalElevation = 0.dp) {
@@ -172,7 +186,7 @@ fun PhotosScreen(
             }
             when {
                 photos.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) {
-                    EmptyState("\u8f6f\u4ef6\u5a92\u4f53\u5de5\u4f5c\u533a\u6682\u65e0\u56fe\u7247", "\u5bfc\u5165\u6587\u4ef6\u5939", onImportFolder)
+                    EmptyState("\u8f6f\u4ef6\u5a92\u4f53\u5de5\u4f5c\u533a\u6682\u65e0\u5a92\u4f53", "\u5bfc\u5165\u6587\u4ef6\u5939", onImportFolder)
                 }
                 else -> sections.forEach { section ->
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -381,7 +395,7 @@ fun AlbumDetailScreen(
                 }
             }
             if (photos.isEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) { EmptyState("\u8fd9\u4e2a\u76f8\u518c\u8fd8\u6ca1\u6709\u56fe\u7247", null, {}) }
+                item(span = { GridItemSpan(maxLineSpan) }) { EmptyState("\u8fd9\u4e2a\u76f8\u518c\u8fd8\u6ca1\u6709\u5a92\u4f53", null, {}) }
             } else {
                 items(photos, key = { it.id }) { photo ->
                     PhotoTile(
@@ -463,7 +477,7 @@ fun RecentDeletedScreen(
                 DetailHeader(if (selecting) "\u5df2\u9009 " + selectedIds.size else "\u6700\u8fd1\u5220\u9664", onBack)
             }
             if (photos.isEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) { EmptyState("\u6682\u65e0\u6700\u8fd1\u5220\u9664\u7684\u56fe\u7247", null, {}) }
+                item(span = { GridItemSpan(maxLineSpan) }) { EmptyState("\u6682\u65e0\u6700\u8fd1\u5220\u9664\u7684\u5a92\u4f53", null, {}) }
             } else {
                 items(photos, key = { it.id }) { photo ->
                     PhotoTile(
@@ -533,7 +547,9 @@ fun PhotoViewerScreen(
 
     Box(Modifier.fillMaxSize().background(if (controlsVisible) Color.White else Color.Black)) {
         if (photo == null) {
-            Text("\u56fe\u7247\u4e0d\u5b58\u5728", color = Color.White, modifier = Modifier.align(Alignment.Center))
+            Text("\u5a92\u4f53\u4e0d\u5b58\u5728", color = Color.White, modifier = Modifier.align(Alignment.Center))
+        } else if (photo.isVideo) {
+            VideoPlayer(photo, Modifier.fillMaxSize().background(Color.Black))
         } else {
             Box(
                 modifier = Modifier
@@ -584,7 +600,11 @@ fun PhotoViewerScreen(
             }
         }
 
-        if (controlsVisible) {
+        if (controlsVisible && photo?.isVideo == true) {
+            IconButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart).padding(start = 18.dp, top = 50.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "\u8fd4\u56de", tint = Color.White, modifier = Modifier.size(40.dp))
+            }
+        } else if (controlsVisible) {
             Surface(color = Color.White, shadowElevation = 0.dp, modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().height(146.dp)) {
                 Column {
                     Row(
@@ -625,6 +645,7 @@ fun PhotoViewerScreen(
                                     .padding(if (thumbIndex == index) 3.dp else 0.dp)
                             ) {
                                 Thumbnail(item, Modifier.fillMaxSize(), target = 160, contentScale = ContentScale.Crop)
+                                if (item.isVideo) VideoDuration(photo = item, modifier = Modifier.align(Alignment.BottomEnd).padding(3.dp), compact = true)
                             }
                         }
                     }
@@ -753,7 +774,7 @@ fun SettingsScreen(
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             SettingsRow("\u626b\u63cf\u6765\u6e90", scanSource)
-            SettingsRow("\u5df2\u626b\u63cf", "\u56fe\u7247 $photoCount \u5f20\u00a0\u00a0\u76f8\u518c $albumCount \u4e2a\u00a0\u00a0\u6700\u8fd1\u5220\u9664 $deletedCount \u5f20")
+            SettingsRow("\u5df2\u626b\u63cf", "\u5a92\u4f53 $photoCount \u4e2a\u00a0\u00a0\u76f8\u518c $albumCount \u4e2a\u00a0\u00a0\u6700\u8fd1\u5220\u9664 $deletedCount \u4e2a")
             SettingsRow("\u6743\u9650", "\u4e0d\u8bfb\u53d6\u7cfb\u7edf\u76f8\u518c\uff0c\u4ec5\u7ba1\u7406\u8f6f\u4ef6\u76ee\u5f55")
             TextButton(
                 onClick = onImportFolder,
@@ -879,6 +900,9 @@ private fun PhotoTile(
             .then(if (photo.uri == null) Modifier.background(photoBrush(photo.color)) else Modifier.background(Color(0xFFEDEDED)))
     ) {
         Thumbnail(photo, Modifier.fillMaxSize())
+        if (photo.isVideo && density != PhotoDensity.Year) {
+            VideoDuration(photo = photo, modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp))
+        }
         if (density != PhotoDensity.Year && photo.label.isNotBlank()) {
             Text(photo.label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.align(Alignment.BottomStart).padding(6.dp))
         }
@@ -887,6 +911,212 @@ private fun PhotoTile(
 }
 
 @Composable
+private fun VideoPlayer(photo: PhotoItem, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    AndroidView(
+        modifier = modifier,
+        factory = { GalleryVideoView(it) { Toast.makeText(context, "\u89c6\u9891\u65e0\u6cd5\u64ad\u653e", Toast.LENGTH_SHORT).show() } },
+        update = { view -> photo.uri?.let(view::play) }
+    )
+}
+
+private class GalleryVideoView(
+    context: Context,
+    private val onError: () -> Unit,
+) : FrameLayout(context), TextureView.SurfaceTextureListener {
+    private val handler = Handler(Looper.getMainLooper())
+    private val textureView = TextureView(context)
+    private val centerPlay = TextView(context)
+    private val seekBar = SeekBar(context)
+    private val bottomPlay = TextView(context)
+    private var player: MediaPlayer? = null
+    private var surface: Surface? = null
+    private var pendingUri: android.net.Uri? = null
+    private var prepared = false
+    private var completed = false
+    private var userSeeking = false
+    private var videoWidth = 0
+    private var videoHeight = 0
+
+    private val progressTick = object : Runnable {
+        override fun run() {
+            val current = player?.currentPosition ?: 0
+            if (!userSeeking) seekBar.progress = current.coerceAtMost(seekBar.max)
+            handler.postDelayed(this, 250L)
+        }
+    }
+
+    init {
+        setBackgroundColor(android.graphics.Color.BLACK)
+        textureView.surfaceTextureListener = this
+        addView(textureView, FrameLayout.LayoutParams(1, 1, Gravity.CENTER))
+
+        centerPlay.text = "\u25b6"
+        centerPlay.textSize = 44f
+        centerPlay.gravity = Gravity.CENTER
+        centerPlay.setTextColor(android.graphics.Color.WHITE)
+        centerPlay.setOnClickListener { togglePlayback() }
+        addView(centerPlay, FrameLayout.LayoutParams(dp(72), dp(72), Gravity.CENTER))
+
+        seekBar.max = 1
+        seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (fromUser && prepared) player?.seekTo(progress)
+            }
+            override fun onStartTrackingTouch(bar: SeekBar) { userSeeking = true }
+            override fun onStopTrackingTouch(bar: SeekBar) {
+                userSeeking = false
+                if (prepared) player?.seekTo(bar.progress)
+            }
+        })
+        addView(seekBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48), Gravity.BOTTOM).apply {
+            leftMargin = 22
+            rightMargin = 22
+            bottomMargin = 82
+        })
+
+        bottomPlay.text = "\u25b6"
+        bottomPlay.textSize = 30f
+        bottomPlay.gravity = Gravity.CENTER
+        bottomPlay.setTextColor(android.graphics.Color.WHITE)
+        bottomPlay.setOnClickListener { togglePlayback() }
+        addView(bottomPlay, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(14) })
+    }
+
+    fun play(uri: android.net.Uri) {
+        if (pendingUri == uri && player != null) return
+        pendingUri = uri
+        if (surface != null) prepare(uri)
+    }
+
+    private fun prepare(uri: android.net.Uri) {
+        releasePlayer()
+        prepared = false
+        completed = false
+        seekBar.progress = 0
+        centerPlay.visibility = android.view.View.VISIBLE
+        bottomPlay.text = "\u25b6"
+        val next = MediaPlayer()
+        player = next
+        try {
+            next.setSurface(surface)
+            val path = uri.path.orEmpty()
+            if (uri.scheme == "file" && path.isNotBlank()) next.setDataSource(path) else next.setDataSource(context, uri)
+            next.setOnVideoSizeChangedListener { _, width, height -> updateVideoSize(width, height) }
+            next.setOnPreparedListener { mediaPlayer ->
+                prepared = true
+                seekBar.max = mediaPlayer.duration.coerceAtLeast(1)
+                updateVideoSize(mediaPlayer.videoWidth, mediaPlayer.videoHeight)
+                mediaPlayer.seekTo(1)
+                updateControls()
+                handler.removeCallbacks(progressTick)
+                handler.post(progressTick)
+            }
+            next.setOnCompletionListener {
+                completed = true
+                seekBar.progress = seekBar.max
+                updateControls()
+            }
+            next.setOnErrorListener { _, _, _ -> onError(); true }
+            next.prepareAsync()
+        } catch (_: Exception) {
+            releasePlayer()
+            onError()
+        }
+    }
+
+    private fun togglePlayback() {
+        val current = player ?: return
+        if (!prepared) return
+        if (current.isPlaying) {
+            current.pause()
+        } else {
+            if (completed) {
+                completed = false
+                current.seekTo(0)
+            }
+            current.start()
+        }
+        updateControls()
+    }
+
+    private fun updateControls() {
+        val playing = player?.isPlaying == true
+        centerPlay.visibility = if (playing) android.view.View.GONE else android.view.View.VISIBLE
+        bottomPlay.text = if (playing) "\u23f8" else "\u25b6"
+    }
+
+    private fun updateVideoSize(width: Int, height: Int) {
+        if (width <= 0 || height <= 0) return
+        videoWidth = width
+        videoHeight = height
+        fitTexture()
+    }
+
+    private fun fitTexture() {
+        if (width <= 0 || height <= 0 || videoWidth <= 0 || videoHeight <= 0) return
+        val videoRatio = videoWidth.toFloat() / videoHeight.toFloat()
+        val parentRatio = width.toFloat() / height.toFloat()
+        val targetWidth: Int
+        val targetHeight: Int
+        if (videoRatio > parentRatio) {
+            targetWidth = width
+            targetHeight = (width / videoRatio).toInt()
+        } else {
+            targetHeight = height
+            targetWidth = (height * videoRatio).toInt()
+        }
+        textureView.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
+    }
+
+    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        fitTexture()
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
+
+    override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
+        surface = Surface(texture)
+        pendingUri?.let(::prepare)
+    }
+
+    override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) = Unit
+    override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
+    override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
+        releasePlayer()
+        surface?.release()
+        surface = null
+        return true
+    }
+
+    override fun onDetachedFromWindow() {
+        releasePlayer()
+        surface?.release()
+        surface = null
+        super.onDetachedFromWindow()
+    }
+
+    private fun releasePlayer() {
+        handler.removeCallbacks(progressTick)
+        runCatching { player?.stop() }
+        player?.release()
+        player = null
+        prepared = false
+    }
+}
+
+@Composable
+private fun VideoDuration(photo: PhotoItem, modifier: Modifier = Modifier, compact: Boolean = false) {
+    Text(
+        text = formatVideoDuration(photo.durationMillis),
+        color = Color.White,
+        fontSize = if (compact) 10.sp else 16.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = modifier
+    )
+}
+@Composable
 private fun Thumbnail(
     photo: PhotoItem,
     modifier: Modifier = Modifier,
@@ -894,8 +1124,8 @@ private fun Thumbnail(
     contentScale: ContentScale = ContentScale.Crop,
 ) {
     val context = LocalContext.current
-    var bitmap by remember(photo.uri, target) { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(photo.uri, target) { bitmap = photo.uri?.let { uri -> withContext(Dispatchers.IO) { loadBitmap(context, uri, target) } } }
+    var bitmap by remember(photo.uri, target, photo.isVideo) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(photo.uri, target, photo.isVideo) { bitmap = photo.uri?.let { uri -> withContext(Dispatchers.IO) { loadBitmap(context, uri, target, photo.isVideo) } } }
     bitmap?.let { Image(bitmap = it.asImageBitmap(), contentDescription = photo.name, contentScale = contentScale, modifier = modifier) }
 }
 
@@ -1002,7 +1232,7 @@ private fun PermanentDeleteConfirmDialog(count: Int, onDismiss: () -> Unit, onCo
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("\u6c38\u4e45\u5220\u9664\uff1f") },
-        text = { Text("\u5c06 " + count + " \u5f20\u56fe\u7247\u4ece\u8f6f\u4ef6\u6700\u8fd1\u5220\u9664\u4e2d\u6c38\u4e45\u5220\u9664\u3002") },
+        text = { Text("\u5c06 " + count + " \u4e2a\u5a92\u4f53\u4ece\u8f6f\u4ef6\u6700\u8fd1\u5220\u9664\u4e2d\u6c38\u4e45\u5220\u9664\u3002") },
         confirmButton = { TextButton(onClick = onConfirm) { Text("\u6c38\u4e45\u5220\u9664", color = Color(0xFFE53935)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("\u53d6\u6d88") } }
     )
@@ -1013,7 +1243,7 @@ private fun DeleteAlbumConfirmDialog(count: Int, onDismiss: () -> Unit, onConfir
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("\u5220\u9664\u76f8\u518c\u6587\u4ef6\u5939\uff1f") },
-        text = { Text("\u5c06 " + count + " \u4e2a\u76f8\u518c\u6587\u4ef6\u5939\u91cc\u7684\u56fe\u7247\u79fb\u5230\u6700\u8fd1\u5220\u9664\uff0c\u7a7a\u6587\u4ef6\u5939\u4f1a\u5c1d\u8bd5\u79fb\u9664\u3002") },
+        text = { Text("\u5c06 " + count + " \u4e2a\u76f8\u518c\u6587\u4ef6\u5939\u91cc\u7684\u5a92\u4f53\u79fb\u5230\u6700\u8fd1\u5220\u9664\uff0c\u7a7a\u6587\u4ef6\u5939\u4f1a\u5c1d\u8bd5\u79fb\u9664\u3002") },
         confirmButton = { TextButton(onClick = onConfirm) { Text("\u5220\u9664", color = Color(0xFFE53935)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("\u53d6\u6d88") } }
     )
@@ -1024,7 +1254,7 @@ private fun DeleteConfirmDialog(count: Int, onDismiss: () -> Unit, onConfirm: ()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("\u79fb\u5230\u6700\u8fd1\u5220\u9664\uff1f") },
-        text = { Text("\u5c06 " + count + " \u5f20\u56fe\u7247\u79fb\u5230\u6700\u8fd1\u5220\u9664\uff0c\u53ef\u4ee5\u4ece\u6700\u8fd1\u5220\u9664\u4e2d\u6062\u590d\u3002") },
+        text = { Text("\u5c06 " + count + " \u4e2a\u5a92\u4f53\u79fb\u5230\u6700\u8fd1\u5220\u9664\uff0c\u53ef\u4ee5\u4ece\u6700\u8fd1\u5220\u9664\u4e2d\u6062\u590d\u3002") },
         confirmButton = { TextButton(onClick = onConfirm) { Text("\u5220\u9664", color = Color(0xFFE53935)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("\u53d6\u6d88") } }
     )
@@ -1136,6 +1366,14 @@ private fun viewerDayTitle(millis: Long): String {
 
 private fun viewerTimeTitle(millis: Long): String =
     SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(millis.takeIf { it > 0 } ?: System.currentTimeMillis()))
+
+private fun formatVideoDuration(millis: Long): String {
+    val totalSeconds = (millis / 1000).coerceAtLeast(0)
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) "%d:%02d:%02d".format(Locale.ROOT, hours, minutes, seconds) else "%02d:%02d".format(Locale.ROOT, minutes, seconds)
+}
 
 private fun sameDay(a: Calendar, b: Calendar): Boolean =
     a.get(Calendar.YEAR) == b.get(Calendar.YEAR) && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)

@@ -1,6 +1,6 @@
 # Next Session Notes
 
-Last updated: 2026-07-08
+Last updated: 2026-07-09
 
 ## Start Here
 
@@ -13,11 +13,10 @@ Read `PROJECT_CONTEXT.md`, then inspect current code. Do not infer product rules
 - Child folders inside the selected folder are preserved and become albums if they are top-level folders under `Media`.
 - Root-level imported images show in all items, not in more albums.
 - Delete/restore/permanent delete are app-controlled inside `Media/.recent_deleted`.
-- Video import is allowed, but video display/playback is still not implemented.
+- Video import, scanning, duration overlays, thumbnails, and aspect-fit TextureView/MediaPlayer playback with draggable progress controls are implemented inside the same `Media` tree.
 
 ## Next Useful Tasks
 
-- Add video scanning/playback in the existing `Media` tree.
 - Add local AI indexing/search for workspace files.
 - Replace placeholder actions only when requested.
 
