@@ -1,5 +1,6 @@
 package com.example.ai_poweredphotogallery
 
+import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
@@ -106,5 +107,27 @@ class ExampleInstrumentedTest {
         assertFalse(source.exists())
         assertTrue(File(root, "$albumName/$albumName.jpg").isFile)
         File(root, albumName).deleteRecursively()
+    }
+    @Test
+    fun importSkipsRenamedDuplicateByContentHash() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefix = "codex_probe_hash_${System.currentTimeMillis()}"
+        val root = galleryRoot(context).apply { mkdirs() }
+        val existing = File(root, "$prefix-existing.jpg").apply { writeBytes(byteArrayOf(12, 13, 14)) }
+        val source = File(context.cacheDir, "$prefix-renamed.jpg").apply { writeBytes(byteArrayOf(12, 13, 14)) }
+
+        try {
+            val result = importMediaFiles(context, listOf(Uri.fromFile(source)))
+
+            assertEquals(0, result.imported)
+            assertEquals(1, result.skipped)
+            assertEquals(1, result.duplicateSkipped)
+            assertFalse(File(root, source.name).exists())
+            assertTrue(existing.isFile)
+        } finally {
+            existing.delete()
+            source.delete()
+            File(root, source.name).delete()
+        }
     }
 }

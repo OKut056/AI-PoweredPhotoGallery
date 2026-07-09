@@ -51,7 +51,7 @@ val PhotoItem.isVideo: Boolean get() = type == MediaType.Video
 data class PhotoSection(val title: String, val photos: List<PhotoItem>)
 data class AlbumItem(val name: String, val count: Int, val cover: PhotoItem? = null, val colors: List<Color> = emptyList())
 data class RestoreResult(val restored: Int)
-data class ImportResult(val imported: Int, val skipped: Int = 0)
+data class ImportResult(val imported: Int, val skipped: Int = 0, val duplicateSkipped: Int = 0)
 data class DeleteRequest(val mediaUris: List<Uri> = emptyList(), val localMoved: Int = 0, val skipped: Int = 0)
 
 val palette = listOf(

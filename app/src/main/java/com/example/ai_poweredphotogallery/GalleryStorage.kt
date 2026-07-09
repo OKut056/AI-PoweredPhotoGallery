@@ -14,11 +14,16 @@ import android.webkit.MimeTypeMap
 import androidx.compose.ui.graphics.Color
 import java.io.File
 import java.io.FileInputStream
+import java.io.InputStream
+import java.security.MessageDigest
+import java.util.Base64
 import java.util.Locale
 private const val MediaRootName = "Media"
 private const val RecentDeletedFolderName = ".recent_deleted"
 private const val RecentDeletedIndexName = "trash_index.tsv"
 private const val MoveIndexName = "move_index.tsv"
+private const val MediaIndexFolderName = ".media_index"
+private const val HashIndexName = "hash_index.tsv"
 
 fun galleryRoot(context: Context): File = File(context.getExternalFilesDir(null) ?: context.filesDir, MediaRootName)
 fun ensureGalleryRoot(context: Context): Boolean = galleryRoot(context).let { it.exists() || it.mkdirs() }
@@ -38,14 +43,26 @@ fun createAlbumFolder(context: Context, name: String): AlbumCreateResult {
 fun importMediaFolder(context: Context, treeUri: Uri): ImportResult {
     val root = galleryRoot(context).apply { mkdirs() }
     val treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
+    val hashIndex = loadHashIndex(context, root).toMutableMap()
+    val existingHashes = hashIndex.values.map { it.hash }.toMutableSet()
     // Import selected folder contents only; do not recreate the picked parent folder under Media.
-    return importDocumentChildren(context, treeUri, treeDocumentId, root)
+    val result = importDocumentChildren(context, treeUri, treeDocumentId, root, hashIndex, existingHashes)
+    writeHashIndex(context, hashIndex)
+    return result
 }
 
-private fun importDocumentChildren(context: Context, treeUri: Uri, documentId: String, targetDir: File): ImportResult {
+private fun importDocumentChildren(
+    context: Context,
+    treeUri: Uri,
+    documentId: String,
+    targetDir: File,
+    hashIndex: MutableMap<String, HashIndexEntry>,
+    existingHashes: MutableSet<String>,
+): ImportResult {
     val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, documentId)
     var imported = 0
     var skipped = 0
+    var duplicateSkipped = 0
 
     context.contentResolver.query(
         childrenUri,
@@ -67,38 +84,51 @@ private fun importDocumentChildren(context: Context, treeUri: Uri, documentId: S
             val mimeType = cursor.getString(mimeColumn).orEmpty()
             val childUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childId)
             if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
-                val result = importDocumentChildren(context, treeUri, childId, File(targetDir, safeFileName(name)))
+                val result = importDocumentChildren(context, treeUri, childId, File(targetDir, safeFileName(name)), hashIndex, existingHashes)
                 imported += result.imported
                 skipped += result.skipped
+                duplicateSkipped += result.duplicateSkipped
             } else if (isImportableMedia(mimeType, name)) {
                 val target = uniqueFile(File(targetDir, safeFileName(name)))
-                if (copyUriToFile(context, childUri, target)) imported++ else skipped++
+                when (copyUniqueUriToFile(context, childUri, target, galleryRoot(context), hashIndex, existingHashes)) {
+                    ImportCopyResult.Imported -> imported++
+                    ImportCopyResult.Duplicate -> { skipped++; duplicateSkipped++ }
+                    ImportCopyResult.Failed -> skipped++
+                }
             } else {
                 skipped++
             }
         }
     } ?: skipped++
 
-    return ImportResult(imported, skipped)
+    return ImportResult(imported, skipped, duplicateSkipped)
 }
 
 fun importMediaFiles(context: Context, uris: List<Uri>): ImportResult {
     val root = galleryRoot(context).apply { mkdirs() }
+    val hashIndex = loadHashIndex(context, root).toMutableMap()
+    val existingHashes = hashIndex.values.map { it.hash }.toMutableSet()
     var imported = 0
     var skipped = 0
+    var duplicateSkipped = 0
 
     uris.forEach { uri ->
         val mimeType = context.contentResolver.getType(uri).orEmpty()
-        val fileName = safeFileName(displayName(context, uri).ifBlank { fallbackFileName(mimeType) })
+        val fileName = safeFileName(displayName(context, uri).ifBlank { uri.lastPathSegment.orEmpty() }.ifBlank { fallbackFileName(mimeType) })
         if (!isImportableMedia(mimeType, fileName)) {
             skipped++
             return@forEach
         }
         val target = uniqueFile(File(root, fileName))
-        if (copyUriToFile(context, uri, target)) imported++ else skipped++
+        when (copyUniqueUriToFile(context, uri, target, root, hashIndex, existingHashes)) {
+            ImportCopyResult.Imported -> imported++
+            ImportCopyResult.Duplicate -> { skipped++; duplicateSkipped++ }
+            ImportCopyResult.Failed -> skipped++
+        }
     }
 
-    return ImportResult(imported, skipped)
+    if (imported > 0) writeHashIndex(context, hashIndex)
+    return ImportResult(imported, skipped, duplicateSkipped)
 }
 fun loadGalleryData(context: Context): GalleryData {
     val root = galleryRoot(context).apply { mkdirs() }
@@ -367,6 +397,93 @@ private fun copyUriToFile(context: Context, uri: Uri, target: File): Boolean = r
     } ?: return@runCatching false
     true
 }.getOrDefault(false)
+
+private fun copyUniqueUriToFile(
+    context: Context,
+    uri: Uri,
+    target: File,
+    root: File,
+    hashIndex: MutableMap<String, HashIndexEntry>,
+    existingHashes: MutableSet<String>,
+): ImportCopyResult {
+    val hash = contentHash(context, uri) ?: return ImportCopyResult.Failed
+    if (!existingHashes.add(hash)) return ImportCopyResult.Duplicate
+    if (!copyUriToFile(context, uri, target)) {
+        existingHashes.remove(hash)
+        return ImportCopyResult.Failed
+    }
+    val path = relativePath(root, target)
+    hashIndex[path] = HashIndexEntry(path, target.length(), target.lastModified(), hash)
+    return ImportCopyResult.Imported
+}
+
+private enum class ImportCopyResult { Imported, Duplicate, Failed }
+private data class HashIndexEntry(val path: String, val size: Long, val modified: Long, val hash: String)
+
+private fun loadHashIndex(context: Context, root: File): Map<String, HashIndexEntry> {
+    val index = readHashIndex(context).toMutableMap()
+    val files = root.walkTopDown()
+        .onEnter { it.name != RecentDeletedFolderName }
+        .filter { it.isFile && it.extension.lowercase(Locale.ROOT) in mediaExtensions }
+        .filter { isVisibleMediaPath(relativePath(root, it)) }
+        .toList()
+    val paths = files.map { relativePath(root, it) }.toSet()
+    index.keys.retainAll(paths)
+
+    files.forEach { file ->
+        val path = relativePath(root, file)
+        val cached = index[path]
+        if (cached?.size == file.length() && cached.modified == file.lastModified()) return@forEach
+        contentHash(file)?.let { hash -> index[path] = HashIndexEntry(path, file.length(), file.lastModified(), hash) }
+    }
+
+    writeHashIndex(context, index)
+    return index
+}
+
+private fun hashIndexFile(context: Context): File = File(File(context.filesDir, MediaIndexFolderName).apply { mkdirs() }, HashIndexName)
+
+private fun readHashIndex(context: Context): Map<String, HashIndexEntry> = runCatching {
+    val file = hashIndexFile(context)
+    if (!file.isFile) return emptyMap()
+    file.readLines().mapNotNull { line ->
+        val parts = line.split('\t')
+        if (parts.size != 4) return@mapNotNull null
+        val path = decodeIndexPath(parts[0]).ifBlank { return@mapNotNull null }
+        val size = parts[1].toLongOrNull() ?: return@mapNotNull null
+        val modified = parts[2].toLongOrNull() ?: return@mapNotNull null
+        path to HashIndexEntry(path, size, modified, parts[3])
+    }.toMap()
+}.getOrDefault(emptyMap())
+
+private fun writeHashIndex(context: Context, index: Map<String, HashIndexEntry>) {
+    runCatching {
+        hashIndexFile(context).writeText(index.values.joinToString("\n") { encodeIndexPath(it.path) + "\t" + it.size + "\t" + it.modified + "\t" + it.hash })
+    }
+}
+
+private fun encodeIndexPath(path: String): String = Base64.getUrlEncoder().withoutPadding().encodeToString(path.toByteArray(Charsets.UTF_8))
+private fun decodeIndexPath(path: String): String = runCatching { String(Base64.getUrlDecoder().decode(path), Charsets.UTF_8) }.getOrDefault("")
+
+private fun contentHash(context: Context, uri: Uri): String? = runCatching {
+    context.contentResolver.openInputStream(uri)?.use(::sha256)
+}.getOrNull()
+
+private fun contentHash(file: File): String? = runCatching {
+    FileInputStream(file).use(::sha256)
+}.getOrNull()
+
+private fun sha256(input: InputStream): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    while (true) {
+        val read = input.read(buffer)
+        if (read <= 0) break
+        digest.update(buffer, 0, read)
+    }
+    return Base64.getEncoder().encodeToString(digest.digest())
+}
+
 private fun isImportableMedia(mimeType: String, fileName: String): Boolean {
     val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
     return mimeType.startsWith("image/") || mimeType.startsWith("video/") || extension in imageExtensions || extension in videoExtensions

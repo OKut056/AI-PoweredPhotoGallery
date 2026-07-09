@@ -57,12 +57,11 @@ fun AIPoweredPhotoGalleryApp() {
 
     fun showImportResult(result: ImportResult) {
         refreshTick++
-        val message = if (result.skipped > 0) {
-            "\u5df2\u5bfc\u5165 " + result.imported + " \u4e2a\uff0c\u8df3\u8fc7 " + result.skipped + " \u4e2a"
-        } else {
-            "\u5df2\u5bfc\u5165 " + result.imported + " \u4e2a"
-        }
-        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        val otherSkipped = (result.skipped - result.duplicateSkipped).coerceAtLeast(0)
+        val parts = mutableListOf("\u5df2\u5bfc\u5165 " + result.imported + " \u4e2a")
+        if (result.duplicateSkipped > 0) parts += "\u8df3\u8fc7\u91cd\u590d " + result.duplicateSkipped + " \u4e2a"
+        if (otherSkipped > 0) parts += "\u5176\u4ed6\u8df3\u8fc7 " + otherSkipped + " \u4e2a"
+        Toast.makeText(context, parts.joinToString("\uff0c"), Toast.LENGTH_SHORT).show()
     }
 
     val importFolderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
