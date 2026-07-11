@@ -2,7 +2,7 @@
 
 Read this before code. Current code is the implementation truth; this file records product decisions.
 
-Last updated: 2026-07-11
+Last updated: 2026-07-12
 
 ## Product Direction
 
@@ -14,6 +14,15 @@ Last updated: 2026-07-11
 - The bottom `AI` tab is intentionally blank until its product design is decided.
 - Search is a separate page opened from the search buttons. Current search is local metadata search over workspace files, not image recognition.
 - Future AI recognition and short-video/feed features should run on this controlled workspace unless the product direction changes later.
+
+## Workspace Data Lifecycle
+
+- `Media` is app-specific external storage, not permanent user storage.
+- Clearing app data or uninstalling/reinstalling the package can remove the complete workspace.
+- `connectedDebugAndroidTest` may reinstall/uninstall the tested package. Treat it as destructive to app data.
+- Never run connected instrumentation tests on a device or emulator that contains media the user wants to keep.
+- Use a disposable test emulator for connected tests. Use compile, unit, and lint tasks for routine verification.
+- Keep irreplaceable originals outside the app workspace; import is a working copy.
 
 ## Import Rules
 
@@ -37,6 +46,15 @@ Last updated: 2026-07-11
 - Files directly under `Media` appear in all items, not as a separate folder album.
 - Hidden folders and dot-prefixed folders are ignored.
 - User-created albums cannot use dot-prefixed/internal names or reserved media category names such as `Media`, `all items`, images, photos, videos, or recordings.
+
+## Image Viewer
+
+- The image viewer switches to the previous/next item with a horizontal swipe at normal zoom.
+- At enlarged zoom, dragging pans the image instead of switching items.
+- The bottom thumbnail strip follows the current item.
+- The top-right info button toggles an image-only details card with name, display time, size, resolution, and workspace path.
+- Video details and video viewer redesign are intentionally not part of the current image-details work.
+- App text uses the platform default font. Do not use generic `Cursive`, which selects a Latin handwriting face and a separate Chinese fallback.
 
 ## Selection Behavior
 
@@ -74,9 +92,8 @@ app/src/main/java/com/example/ai_poweredphotogallery/AiSearch.kt
 app/src/main/AndroidManifest.xml
 ```
 
-## Next Useful Tasks
+## Next Tasks
 
-- Add a media info view: file name, path, size, resolution, duration, hash, created/modified time.
 - Improve import UX only where it helps the core gallery: progress, failure details, and import-complete navigation.
 - Make sorting/filtering real: time, name, size, media type.
 - Keep deletion/restore behavior conservative and data-loss resistant.
@@ -84,6 +101,9 @@ app/src/main/AndroidManifest.xml
 ## Test Media
 
 For emulator/device tests, push files into the app-specific workspace:
+
+Only use disposable media here. A connected instrumentation test or app reinstall can
+delete this directory.
 
 ```text
 /sdcard/Android/data/com.example.ai_poweredphotogallery/files/Media/
@@ -111,10 +131,18 @@ Media/Memes/b.png
 .\gradlew.bat :app:assembleDebug
 .\gradlew.bat :app:testDebugUnitTest
 .\gradlew.bat :app:lintDebug
-.\gradlew.bat :app:connectedDebugAndroidTest
 ```
 
 Gradle may need sandbox escalation because it writes to `C:\Users\lll\.gradle`.
+
+Run connected tests only on a disposable emulator:
+
+```powershell
+.\gradlew.bat :app:connectedDebugAndroidTest
+```
+
+Do not run that task on the user's working emulator or physical device. It may reinstall
+or uninstall the app and remove `Android/data/com.example.ai_poweredphotogallery/files/Media/`.
 
 ## Git
 

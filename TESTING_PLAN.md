@@ -1,6 +1,6 @@
 # Testing Plan
 
-Last updated: 2026-07-11
+Last updated: 2026-07-12
 
 ## Start Here
 
@@ -19,23 +19,15 @@ Run these before committing:
 .\gradlew.bat :app:lintDebug
 ```
 
-If an emulator or device is connected, also run:
+Do not run connected instrumentation tests as a routine check. They may reinstall or
+uninstall the app and remove the app-specific `Media` workspace. Only run this command
+on a disposable emulator with no user media:
 
 ```powershell
 .\gradlew.bat :app:connectedDebugAndroidTest
 ```
 
 Gradle may need permission to write to `C:\Users\lll\.gradle`.
-
-On this Windows setup, `:app:testDebugUnitTest` can fail before running assertions if the Java path with `Program Files` is split incorrectly by the Gradle test executor. Treat that as an environment failure, not an app test failure, unless the test report shows assertion failures.
-
-The current machine has a malformed quoted Java entry in `PATH`. Run Gradle tests with a process-local cleanup; this does not change system settings:
-
-```powershell
-$env:PATH=$env:PATH.Replace(';"D:\Program Files\java\jdk-21\bin;D:\Program Files\java\jdk-21\jre\bin;"','')
-$env:CLASSPATH=''
-.\gradlew.bat :app:testDebugUnitTest --no-daemon
-```
 
 ## Current Automated Coverage
 
@@ -58,6 +50,12 @@ $env:CLASSPATH=''
 - a new file at a deleted item's original path remains visible
 - hidden, internal, and reserved media-category album names are rejected
 
+`app/src/androidTest/java/com/example/ai_poweredphotogallery/ImageDetailsInstrumentedTest.kt`
+
+- image details display a known workspace file name, size, resolution, and path
+- the top-right info button opens and closes the details card
+- horizontal swipe changes the current image
+
 ## Manual Device Smoke Test
 
 Use a real device or emulator after automated tests pass.
@@ -72,11 +70,16 @@ Use a real device or emulator after automated tests pass.
 8. Open a video and verify thumbnail, duration overlay, playback, pause/play, and progress drag.
 9. Delete media, then restore it from recent deleted.
 10. Permanently delete a media item from recent deleted only after confirmation.
-11. Search by file name, album name, path fragment, and media type terms such as `video`.
+11. Open an image, swipe left/right, and confirm the bottom thumbnail follows.
+12. Toggle the top-right image info button and verify name, time, size, resolution, and path.
+13. Search by file name, album name, path fragment, and media type terms such as `video`.
 
 ## Test Media Setup
 
 Push media into the app workspace if direct import is not enough:
+
+Use only disposable copies. Uninstall, clear-data, and connected instrumentation testing
+can remove the entire app-specific workspace.
 
 ```powershell
 adb shell mkdir -p /sdcard/Android/data/com.example.ai_poweredphotogallery/files/Media
@@ -96,5 +99,4 @@ Add the smallest useful tests first:
 
 - hash index reuses cached hashes when size and modified time are unchanged
 - hash index recalculates when an existing file changes
-- media info page displays path, size, type, duration/dimensions, and hash
 - sort/filter behavior once real sorting/filtering is implemented

@@ -347,6 +347,31 @@ private fun loadDeletedPhotos(root: File, index: Map<String, String>, durationIn
 fun photosForAlbum(albumName: String, photos: List<PhotoItem>): List<PhotoItem> =
     if (albumName == AllAlbumName) photos else photos.filter { it.albumName == albumName }
 
+// Call from a background dispatcher: decoding bounds still opens and reads the image file.
+// Missing or non-workspace files return partial data instead of crashing the viewer.
+fun loadImageDetails(context: Context, photo: PhotoItem): ImageDetails {
+    val file = photo.uri
+        ?.takeIf { it.scheme == "file" }
+        ?.path
+        ?.let(::File)
+        ?.takeIf { isInside(galleryRoot(context), it) && it.isFile }
+    val bounds = file?.let {
+        BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+            BitmapFactory.decodeFile(it.absolutePath, this)
+        }
+    }
+    return ImageDetails(
+        name = photo.name,
+        relativePath = photo.relativePath,
+        dateMillis = photo.dateMillis.takeIf { it > 0L },
+        sizeBytes = file?.length(),
+        width = bounds?.outWidth?.takeIf { it > 0 },
+        height = bounds?.outHeight?.takeIf { it > 0 },
+        isReadable = file != null && file.canRead(),
+    )
+}
+
 private fun recentDeletedFolder(root: File): File = File(root, RecentDeletedFolderName)
 private fun deletedIndexFile(context: Context): File = File(File(context.filesDir, RecentDeletedFolderName).apply { mkdirs() }, RecentDeletedIndexName)
 

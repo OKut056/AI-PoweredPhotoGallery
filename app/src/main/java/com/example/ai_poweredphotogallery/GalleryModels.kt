@@ -48,6 +48,15 @@ data class PhotoItem(
     val durationMillis: Long = 0L,
 )
 val PhotoItem.isVideo: Boolean get() = type == MediaType.Video
+data class ImageDetails(
+    val name: String,
+    val relativePath: String,
+    val dateMillis: Long?,
+    val sizeBytes: Long?,
+    val width: Int?,
+    val height: Int?,
+    val isReadable: Boolean,
+)
 data class PhotoSection(val title: String, val photos: List<PhotoItem>)
 data class AlbumItem(val name: String, val count: Int, val cover: PhotoItem? = null, val colors: List<Color> = emptyList())
 data class RestoreResult(val restored: Int)

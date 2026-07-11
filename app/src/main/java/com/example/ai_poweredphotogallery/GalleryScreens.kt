@@ -35,6 +35,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -43,6 +45,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -98,6 +101,7 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import kotlin.math.roundToInt
 @Composable
 fun AppBottomBar(selected: AppDestination, onSelect: (AppDestination) -> Unit) {
@@ -107,7 +111,7 @@ fun AppBottomBar(selected: AppDestination, onSelect: (AppDestination) -> Unit) {
                 selected = selected == item,
                 onClick = { onSelect(item) },
                 icon = { Icon(item.icon, contentDescription = item.label) },
-                label = { Text(item.label, fontFamily = FontFamily.Cursive, fontSize = 18.sp) },
+                label = { Text(item.label, fontFamily = FontFamily.Default, fontSize = 18.sp) },
                 colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
                     selectedIconColor = Accent,
                     selectedTextColor = Accent,
@@ -419,7 +423,7 @@ fun AlbumDetailScreen(
                 Row(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 22.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("\u2193", fontSize = 28.sp, color = Ink)
                     Spacer(Modifier.width(10.dp))
-                    Text("\u6309\u5a92\u4f53\u65f6\u95f4 \u65b0\u5230\u65e7", color = Ink, fontFamily = FontFamily.Cursive, fontSize = 24.sp)
+                    Text("\u6309\u5a92\u4f53\u65f6\u95f4 \u65b0\u5230\u65e7", color = Ink, fontFamily = FontFamily.Default, fontSize = 24.sp)
                 }
             }
             if (photos.isEmpty()) {
@@ -571,18 +575,32 @@ fun PhotoViewerScreen(
     onBack: () -> Unit,
     onDeletePhoto: (String) -> Unit = {},
 ) {
+    val context = LocalContext.current
     var index by remember(photoId, photos) { mutableStateOf(photos.indexOfFirst { it.id == photoId }.coerceAtLeast(0)) }
+    val thumbnailState = rememberLazyListState()
     val photo = photos.getOrNull(index)
     var controlsVisible by rememberSaveable { mutableStateOf(true) }
     var scale by remember { mutableStateOf(1f) }
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
     var pendingDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showImageDetails by rememberSaveable { mutableStateOf(false) }
+    var imageDetails by remember(photo?.id) { mutableStateOf<ImageDetails?>(null) }
+
+    BackHandler(enabled = showImageDetails) { showImageDetails = false }
+
+    LaunchedEffect(showImageDetails, photo?.id) {
+        if (showImageDetails && photo != null && !photo.isVideo) {
+            imageDetails = withContext(Dispatchers.IO) { loadImageDetails(context, photo) }
+        }
+    }
 
     LaunchedEffect(index) {
         scale = 1f
         offsetX = 0f
         offsetY = 0f
+        // Keep the selected thumbnail visible when the full-screen media changes.
+        if (index in photos.indices) thumbnailState.animateScrollToItem(index)
     }
 
     Box(Modifier.fillMaxSize().background(if (controlsVisible) Color.White else Color.Black)) {
@@ -611,12 +629,29 @@ fun PhotoViewerScreen(
                         )
                     }
                     .pointerInput(index) {
+                        // Swiping and zooming share one detector so two gesture recognizers do
+                        // not compete for the same drag.
+                        var swipeX = 0f
+                        var swipeY = 0f
                         detectTransformGestures { _, pan, zoom, _ ->
                             val nextScale = (scale * zoom).coerceIn(1f, 5f)
-                            if (nextScale == 1f) {
+                            if (scale <= 1.01f && nextScale <= 1.01f) {
+                                swipeX += pan.x
+                                swipeY += pan.y
+                                val threshold = 72.dp.toPx()
+                                if (abs(swipeX) > threshold && abs(swipeX) > abs(swipeY)) {
+                                    when {
+                                        swipeX < 0f && index < photos.lastIndex -> index++
+                                        swipeX > 0f && index > 0 -> index--
+                                    }
+                                    swipeX = 0f
+                                    swipeY = 0f
+                                }
                                 offsetX = 0f
                                 offsetY = 0f
                             } else {
+                                swipeX = 0f
+                                swipeY = 0f
                                 offsetX += pan.x
                                 offsetY += pan.y
                             }
@@ -655,12 +690,14 @@ fun PhotoViewerScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "\u8fd4\u56de", tint = Ink, modifier = Modifier.size(40.dp))
                         }
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                            Text(photo?.let { viewerDayTitle(it.dateMillis) }.orEmpty(), color = Ink, fontFamily = FontFamily.Cursive, fontWeight = FontWeight.Bold, fontSize = 30.sp)
-                            Text(photo?.let { viewerTimeTitle(it.dateMillis) }.orEmpty(), color = Muted, fontFamily = FontFamily.Cursive, fontSize = 19.sp)
+                            Text(photo?.let { viewerDayTitle(it.dateMillis) }.orEmpty(), color = Ink, fontFamily = FontFamily.Default, fontWeight = FontWeight.Bold, fontSize = 30.sp)
+                            Text(photo?.let { viewerTimeTitle(it.dateMillis) }.orEmpty(), color = Muted, fontFamily = FontFamily.Default, fontSize = 19.sp)
                         }
                         TextButton(onClick = {}) { Text("\u2661", color = Ink, fontSize = 43.sp) }
                         Spacer(Modifier.width(18.dp))
-                        TextButton(onClick = {}) { Text("\u24d8", color = Ink, fontSize = 39.sp) }
+                        TextButton(onClick = { if (photo?.isVideo == false) showImageDetails = !showImageDetails }) {
+                            Text("\u24d8", color = Ink, fontSize = 39.sp)
+                        }
                     }
                     HorizontalDivider(color = SoftLine)
                 }
@@ -670,6 +707,7 @@ fun PhotoViewerScreen(
                 Column {
                     HorizontalDivider(color = SoftLine)
                     LazyRow(
+                        state = thumbnailState,
                         contentPadding = PaddingValues(horizontal = 110.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier.fillMaxWidth().height(82.dp),
@@ -702,6 +740,39 @@ fun PhotoViewerScreen(
                 }
             }
         }
+
+        if (showImageDetails && photo?.isVideo == false) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(top = 146.dp)
+                    .background(Color.Black.copy(alpha = 0.38f))
+                    .combinedClickable(onClick = { showImageDetails = false }, onLongClick = {})
+            ) {
+                Surface(
+                    color = Color.White.copy(alpha = 0.92f),
+                    shape = RoundedCornerShape(26.dp),
+                    shadowElevation = 8.dp,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp, vertical = 34.dp)
+                        .combinedClickable(onClick = {}, onLongClick = {}),
+                ) {
+                    if (imageDetails == null) {
+                        Text(
+                            "\u6b63\u5728\u8bfb\u53d6\u56fe\u7247\u8be6\u60c5\u2026",
+                            color = Muted,
+                            fontFamily = FontFamily.Default,
+                            fontSize = 18.sp,
+                            modifier = Modifier.padding(28.dp),
+                        )
+                    } else {
+                        ImageDetailsCard(imageDetails!!)
+                    }
+                }
+            }
+        }
     }
 
     pendingDeleteId?.let { id ->
@@ -717,12 +788,70 @@ fun PhotoViewerScreen(
 }
 
 @Composable
+fun ImageDetailsCard(details: ImageDetails) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 28.dp, vertical = 30.dp),
+        verticalArrangement = Arrangement.spacedBy(25.dp),
+    ) {
+        ImageDetailRow("\u540d\u79f0", details.name.ifBlank { "\u4e0d\u53ef\u7528" })
+        ImageDetailRow("\u65f6\u95f4", details.dateMillis?.let(::formatDetailsTime) ?: "\u4e0d\u53ef\u7528")
+        val size = details.sizeBytes?.let(::formatFileSize).orEmpty()
+        val resolution = if (details.width != null && details.height != null) "${details.width} \u00d7 ${details.height}" else ""
+        ImageDetailRow("\u5927\u5c0f", listOf(size, resolution).filter { it.isNotBlank() }.joinToString("    ").ifBlank { "\u4e0d\u53ef\u7528" })
+        ImageDetailRow("\u8def\u5f84", details.relativePath.takeIf { it.isNotBlank() }?.let { "Media/$it" } ?: "\u4e0d\u53ef\u7528")
+        if (!details.isReadable) {
+            Text(
+                "\u56fe\u7247\u6587\u4ef6\u4e0d\u5b58\u5728\u6216\u65e0\u6cd5\u8bfb\u53d6",
+                color = Color(0xFFB05050),
+                fontFamily = FontFamily.Default,
+                fontSize = 15.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ImageDetailRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Text(
+            label,
+            color = Muted,
+            fontSize = 18.sp,
+            fontFamily = FontFamily.Default,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.width(72.dp),
+        )
+        Text(
+            value,
+            color = Ink,
+            fontFamily = FontFamily.Default,
+            fontSize = 20.sp,
+            lineHeight = 28.sp,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+private fun formatDetailsTime(millis: Long): String =
+    SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.getDefault()).format(Date(millis))
+
+private fun formatFileSize(bytes: Long): String = when {
+    bytes < 1024L -> "$bytes B"
+    bytes < 1024L * 1024L -> String.format(Locale.getDefault(), "%.2f KB", bytes / 1024.0)
+    bytes < 1024L * 1024L * 1024L -> String.format(Locale.getDefault(), "%.2f MB", bytes / (1024.0 * 1024.0))
+    else -> String.format(Locale.getDefault(), "%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0))
+}
+
+@Composable
 private fun ViewerAction(icon: String, label: String, onClick: (() -> Unit)? = null) {
     val context = LocalContext.current
     TextButton(onClick = { onClick?.invoke() ?: Toast.makeText(context, label + "\u529f\u80fd\u5360\u4f4d", Toast.LENGTH_SHORT).show() }) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(icon, color = Ink, fontSize = 34.sp)
-            Text(label, color = Ink, fontFamily = FontFamily.Cursive, fontSize = 20.sp)
+            Text(label, color = Ink, fontFamily = FontFamily.Default, fontSize = 20.sp)
         }
     }
 }
@@ -849,7 +978,7 @@ private fun SelectionModeHeader(selectedCount: Int, subtitle: String? = null, on
 @Composable
 private fun PageHeader(title: String, actions: @Composable RowScope.() -> Unit) {
     Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 22.dp, top = 66.dp, bottom = 46.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, fontFamily = FontFamily.Cursive, fontWeight = FontWeight.Bold, fontSize = 42.sp, color = Color.Black)
+        Text(title, fontFamily = FontFamily.Default, fontWeight = FontWeight.Bold, fontSize = 42.sp, color = Color.Black)
         Spacer(Modifier.weight(1f))
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), content = actions)
     }
@@ -907,19 +1036,19 @@ private fun EmptyState(text: String, button: String?, onClick: () -> Unit) {
 
 @Composable
 private fun SectionHeader(text: String) {
-    Text(text, modifier = Modifier.padding(start = 28.dp, top = 8.dp, bottom = 20.dp), fontFamily = FontFamily.Cursive, fontSize = 27.sp, color = Ink)
+    Text(text, modifier = Modifier.padding(start = 28.dp, top = 8.dp, bottom = 20.dp), fontFamily = FontFamily.Default, fontSize = 27.sp, color = Ink)
 }
 
 @Composable
 private fun YearHeader(text: String) {
     Surface(color = Color.White.copy(alpha = 0.92f), shape = RoundedCornerShape(10.dp), modifier = Modifier.padding(start = 66.dp, top = 4.dp, bottom = 8.dp)) {
-        Text(text.take(5), modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp), fontFamily = FontFamily.Cursive, fontSize = 22.sp, color = Ink)
+        Text(text.take(5), modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp), fontFamily = FontFamily.Default, fontSize = 22.sp, color = Ink)
     }
 }
 
 @Composable
 private fun SectionTitle(text: String) {
-    Text(text, modifier = Modifier.padding(start = 28.dp, top = 26.dp, bottom = 18.dp), fontFamily = FontFamily.Cursive, fontWeight = FontWeight.Bold, fontSize = 30.sp, color = Ink)
+    Text(text, modifier = Modifier.padding(start = 28.dp, top = 26.dp, bottom = 18.dp), fontFamily = FontFamily.Default, fontWeight = FontWeight.Bold, fontSize = 30.sp, color = Ink)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -1236,7 +1365,7 @@ private fun AlbumCard(
             }
             if (selected) SelectionMark()
         }
-        Text(album.name, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp), fontFamily = FontFamily.Cursive, fontSize = 24.sp, color = Ink)
+        Text(album.name, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp), fontFamily = FontFamily.Default, fontSize = 24.sp, color = Ink)
         Text(album.count.toString(), color = Muted, fontSize = 15.sp)
     }
 }
@@ -1347,8 +1476,8 @@ private fun AlbumListEntry(title: String, count: String, tint: Color, onClick: (
     Row(Modifier.fillMaxWidth().height(82.dp).combinedClickable(onClick = onClick).padding(horizontal = 28.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(42.dp).clip(RoundedCornerShape(10.dp)).background(tint.copy(alpha = 0.13f)), contentAlignment = Alignment.Center) { Text("\u25a3", color = tint, fontSize = 24.sp) }
         Spacer(Modifier.width(22.dp))
-        Text(title, fontFamily = FontFamily.Cursive, fontSize = 28.sp, color = Ink, modifier = Modifier.weight(1f))
-        Text(count, color = Muted, fontFamily = FontFamily.Cursive, fontSize = 22.sp)
+        Text(title, fontFamily = FontFamily.Default, fontSize = 28.sp, color = Ink, modifier = Modifier.weight(1f))
+        Text(count, color = Muted, fontFamily = FontFamily.Default, fontSize = 22.sp)
         Text("  \u203a", color = Color(0xFFD0D0D0), fontSize = 34.sp)
     }
 }
@@ -1356,7 +1485,7 @@ private fun AlbumListEntry(title: String, count: String, tint: Color, onClick: (
 @Composable
 private fun DateBubble(date: String, modifier: Modifier = Modifier) {
     Surface(color = Accent, shape = RoundedCornerShape(22.dp), modifier = modifier) {
-        Text(date, modifier = Modifier.padding(horizontal = 42.dp, vertical = 24.dp), color = Color.White, fontFamily = FontFamily.Cursive, fontWeight = FontWeight.Bold, fontSize = 28.sp)
+        Text(date, modifier = Modifier.padding(horizontal = 42.dp, vertical = 24.dp), color = Color.White, fontFamily = FontFamily.Default, fontWeight = FontWeight.Bold, fontSize = 28.sp)
     }
 }
 
