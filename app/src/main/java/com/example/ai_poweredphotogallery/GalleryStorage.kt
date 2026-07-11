@@ -39,8 +39,7 @@ fun galleryRoot(context: Context): File = File(context.getExternalFilesDir(null)
 fun ensureGalleryRoot(context: Context): Boolean = galleryRoot(context).let { it.exists() || it.mkdirs() }
 
 fun createAlbumFolder(context: Context, name: String): AlbumCreateResult {
-    val safeName = safeAlbumName(name)
-    if (safeName.isEmpty()) return AlbumCreateResult.Failed
+    val safeName = validAlbumName(name) ?: return AlbumCreateResult.InvalidName
     val folder = File(galleryRoot(context), safeName)
     return when {
         folder.isDirectory -> AlbumCreateResult.AlreadyExists
@@ -80,8 +79,8 @@ private fun importDocumentChildren(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
             DocumentsContract.Document.COLUMN_MIME_TYPE,
-        ),
             DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        ),
         null,
         null,
         null,
@@ -90,7 +89,7 @@ private fun importDocumentChildren(
         val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
         val mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
         while (cursor.moveToNext()) {
-        val modifiedColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            val modifiedColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
             val childId = cursor.getString(idColumn)
             val name = cursor.getString(nameColumn).orEmpty()
             val mimeType = cursor.getString(mimeColumn).orEmpty()
@@ -165,7 +164,7 @@ fun loadGalleryData(context: Context): GalleryData {
         isInside(root, current) && current.isFile
     }
     if (deletedIndex.size != storedDeletedIndex.size) writeDeletedIndex(context, deletedIndex)
-    val deletedPaths = deletedIndex.flatMap { listOf(it.key, it.value) }.toSet()
+    val deletedPaths = deletedIndex.keys
     val durationIndex = readDurationIndex(context).toMutableMap()
     val photos = loadPhotos(root, deletedPaths, durationIndex)
     val deletedPhotos = loadDeletedPhotos(root, deletedIndex, durationIndex)
@@ -191,8 +190,8 @@ fun loadGalleryData(context: Context): GalleryData {
 
 fun movePhotosToAlbum(context: Context, photos: List<PhotoItem>, selectedIds: Set<String>, albumName: String): Int {
     val root = galleryRoot(context)
-    val safeName = safeAlbumName(albumName)
-    val targetDir = if (safeName.isEmpty() || albumName == AllAlbumName) root else File(root, safeName).apply { mkdirs() }
+    val safeName = if (albumName == AllAlbumName) "" else validAlbumName(albumName) ?: return 0
+    val targetDir = if (safeName.isEmpty()) root else File(root, safeName).apply { mkdirs() }
     var moved = 0
 
     photos.filter { it.id in selectedIds }.forEach { photo ->
@@ -447,7 +446,10 @@ private fun importedMediaTimeMillis(
         mimeType.startsWith("image/") || extension in imageExtensions -> imageCreationTimeMillis(context, uri)
         else -> null
     }
-    return embedded?.takeIf { it > 0L } ?: sourceModified.takeIf { it > 0L } ?: System.currentTimeMillis()
+    // Prefer a later source mtime when the media was edited after its embedded creation time.
+    return listOfNotNull(embedded?.takeIf { it > 0L }, sourceModified.takeIf { it > 0L })
+        .maxOrNull()
+        ?: System.currentTimeMillis()
 }
 
 @Suppress("DEPRECATION")
@@ -643,6 +645,22 @@ private fun safeDirectoryName(name: String): String? =
     name.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_").takeUnless { it.isBlank() || it == "." || it == ".." }
 
 private fun safeAlbumName(name: String): String = safeDirectoryName(name).orEmpty()
+
+// Keep user albums distinct from virtual categories and app-owned storage directories.
+private val reservedAlbumNames = setOf(
+    AllAlbumName,
+    MediaRootName,
+    RecentDeletedFolderName,
+    "\u56fe\u7247", "\u56fe\u50cf", "\u7167\u7247", "\u76f8\u7247", "\u89c6\u9891", "\u5f55\u50cf", "\u5f71\u7247", "\u7535\u5f71", "\u77ed\u89c6\u9891", "\u52a8\u56fe",
+).mapTo(mutableSetOf()) { it.lowercase(Locale.ROOT) }
+
+private fun validAlbumName(name: String): String? {
+    val trimmed = name.trim()
+    val safeName = safeDirectoryName(trimmed) ?: return null
+    return safeName.takeIf {
+        it == trimmed && !it.startsWith('.') && it.lowercase(Locale.ROOT) !in reservedAlbumNames
+    }
+}
 
 private fun importFileName(mimeType: String, name: String): String? {
     val safeName = safeFileName(name)

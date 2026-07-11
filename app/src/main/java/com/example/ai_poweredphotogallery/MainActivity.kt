@@ -236,6 +236,7 @@ fun AIPoweredPhotoGalleryApp() {
                                     Toast.makeText(context, "\u5df2\u521b\u5efa\u76f8\u518c\uff1a" + name, Toast.LENGTH_SHORT).show()
                                 }
                                 AlbumCreateResult.AlreadyExists -> Toast.makeText(context, "\u76f8\u518c\u5df2\u5b58\u5728\uff1a" + name, Toast.LENGTH_SHORT).show()
+                                AlbumCreateResult.InvalidName -> Toast.makeText(context, "\u8be5\u540d\u79f0\u5c5e\u4e8e\u9690\u85cf\u76ee\u5f55\u3001\u5185\u90e8\u76ee\u5f55\u6216\u5a92\u4f53\u5206\u7c7b\uff0c\u4e0d\u80fd\u521b\u5efa", Toast.LENGTH_SHORT).show()
                                 AlbumCreateResult.Failed -> Toast.makeText(context, "\u521b\u5efa\u5931\u8d25", Toast.LENGTH_SHORT).show()
                             }
                         }

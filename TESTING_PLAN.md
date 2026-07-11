@@ -1,28 +1,12 @@
 # Testing Plan
 
-Last updated: 2026-07-10
+Last updated: 2026-07-11
 
 ## Start Here
 
-Read `PROJECT_CONTEXT.md`, `NEXT_SESSION.md`, then this file before testing.
+Read `PROJECT_CONTEXT.md`, then this file before testing.
 
 The current priority is core gallery quality: import, duplicate detection, albums, video playback, delete/restore, search, and selection behavior. AI/chat/feed features are deferred.
-
-## About The Media Info Page
-
-The proposed media info page is not a throwaway test page and not automation by itself.
-
-It should be a real user-facing detail view opened from the photo/video viewer info action. It is useful because it exposes the same foundation automated tests need to trust:
-
-- file name
-- workspace relative path
-- file size
-- image dimensions or video duration
-- media type
-- modified time
-- SHA-256 hash when available
-
-Build it when the gallery needs better inspectability. It can then double as a manual QA screen.
 
 ## What Codex Can Test Automatically
 
@@ -32,6 +16,7 @@ Run these before committing:
 .\gradlew.bat :app:compileDebugKotlin
 .\gradlew.bat :app:compileDebugAndroidTestKotlin
 .\gradlew.bat :app:testDebugUnitTest
+.\gradlew.bat :app:lintDebug
 ```
 
 If an emulator or device is connected, also run:
@@ -70,6 +55,8 @@ $env:CLASSPATH=''
 - Java-hash-colliding paths still receive distinct media IDs
 - stale trash-index entries are pruned without hiding the original media
 - importing media without embedded metadata preserves the source file time
+- a new file at a deleted item's original path remains visible
+- hidden, internal, and reserved media-category album names are rejected
 
 ## Manual Device Smoke Test
 
@@ -107,19 +94,7 @@ Media/Memes/b.png
 
 Add the smallest useful tests first:
 
-- import result distinguishes duplicate skips from other skips
 - hash index reuses cached hashes when size and modified time are unchanged
 - hash index recalculates when an existing file changes
 - media info page displays path, size, type, duration/dimensions, and hash
 - sort/filter behavior once real sorting/filtering is implemented
-
-## New Conversation Prompt
-
-Use this prompt when starting a new Codex conversation:
-
-```text
-Read PROJECT_CONTEXT.md, NEXT_SESSION.md, and TESTING_PLAN.md first, then inspect the current code.
-Run the automatic tests that can run in this environment.
-If no emulator/device is connected, explicitly say connectedDebugAndroidTest was not run.
-Do not touch .idea/misc.xml unless I explicitly ask for it.
-```

@@ -419,7 +419,7 @@ fun AlbumDetailScreen(
                 Row(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 22.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("\u2193", fontSize = 28.sp, color = Ink)
                     Spacer(Modifier.width(10.dp))
-                    Text("\u6309\u4fee\u6539\u65f6\u95f4 \u65b0\u5230\u65e7", color = Ink, fontFamily = FontFamily.Cursive, fontSize = 24.sp)
+                    Text("\u6309\u5a92\u4f53\u65f6\u95f4 \u65b0\u5230\u65e7", color = Ink, fontFamily = FontFamily.Cursive, fontSize = 24.sp)
                 }
             }
             if (photos.isEmpty()) {

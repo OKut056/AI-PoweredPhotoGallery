@@ -26,7 +26,7 @@ enum class PhotoDensity(val columns: Int) {
     fun zoomOut() = when (this) { Normal -> Dense; Dense -> Year; Year -> Year }
 }
 
-enum class AlbumCreateResult { Created, AlreadyExists, Failed }
+enum class AlbumCreateResult { Created, AlreadyExists, InvalidName, Failed }
 enum class MediaType { Image, Video }
 
 data class GalleryData(

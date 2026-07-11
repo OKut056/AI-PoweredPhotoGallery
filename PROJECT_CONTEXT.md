@@ -2,7 +2,7 @@
 
 Read this before code. Current code is the implementation truth; this file records product decisions.
 
-Last updated: 2026-07-10
+Last updated: 2026-07-11
 
 ## Product Direction
 
@@ -26,7 +26,7 @@ Last updated: 2026-07-10
 - Import skips image/video files whose SHA-256 content hash already exists in the current `Media` workspace, even if the file name is different.
 - Hashes are cached in `context.filesDir/.media_index/hash_index.tsv` with path, size, modified time, and SHA-256. The cache is refreshed from file size/mtime and pruned on the next import.
 - Imports are serialized. Provider names are normalized, every destination is verified to remain inside `Media`, and content is copied to a hidden temporary file before it is renamed into place.
-- Imported media preserves its own time for sorting: embedded image/video creation time first, source modified time second, and import time only as a final fallback.
+- Imported media uses the later valid value of embedded creation time and source modified time for sorting; import time is only the final fallback.
 - Import result messages distinguish imported files, duplicate skips, and other skips.
 
 ## Albums And Display
@@ -36,6 +36,7 @@ Last updated: 2026-07-10
 - Top-level subfolders under `Media` appear as albums / more albums.
 - Files directly under `Media` appear in all items, not as a separate folder album.
 - Hidden folders and dot-prefixed folders are ignored.
+- User-created albums cannot use dot-prefixed/internal names or reserved media category names such as `Media`, `all items`, images, photos, videos, or recordings.
 
 ## Selection Behavior
 
@@ -49,6 +50,7 @@ Last updated: 2026-07-10
 
 - Delete is app-controlled for workspace files: move to `Media/.recent_deleted`.
 - Trash metadata is stored under `context.filesDir/.recent_deleted` and updated with atomic file replacement. Missing trash targets are pruned on scan so an interrupted delete cannot hide the original media.
+- A new file at the original path remains visible while the older deleted file stays in recent deleted; restore resolves the conflict with a unique file name.
 - Restore moves files back to the recorded relative path and recreates missing folders inside `Media`.
 - Permanent delete removes selected files from app recent-deleted after confirmation.
 - Android system gallery trash integration is not part of the current workspace-only design.
@@ -107,6 +109,9 @@ Media/Memes/b.png
 .\gradlew.bat :app:compileDebugKotlin
 .\gradlew.bat :app:compileDebugAndroidTestKotlin
 .\gradlew.bat :app:assembleDebug
+.\gradlew.bat :app:testDebugUnitTest
+.\gradlew.bat :app:lintDebug
+.\gradlew.bat :app:connectedDebugAndroidTest
 ```
 
 Gradle may need sandbox escalation because it writes to `C:\Users\lll\.gradle`.

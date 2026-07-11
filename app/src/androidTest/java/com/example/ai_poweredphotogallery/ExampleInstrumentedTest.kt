@@ -200,4 +200,38 @@ class ExampleInstrumentedTest {
             target.delete()
         }
     }
+
+    @Test
+    fun newMediaAtDeletedOriginalPathRemainsVisible() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fileName = "codex_probe_recreated_${System.currentTimeMillis()}.jpg"
+        val root = galleryRoot(context).apply { mkdirs() }
+        val original = File(root, fileName).apply { writeBytes(byteArrayOf(30)) }
+
+        try {
+            val photo = loadGalleryData(context).photos.single { it.name == fileName }
+            assertEquals(1, prepareDeleteRequest(context, listOf(photo), setOf(photo.id)).localMoved)
+            original.writeBytes(byteArrayOf(31))
+
+            val data = loadGalleryData(context)
+            assertTrue(data.photos.any { it.relativePath == fileName })
+            assertTrue(data.deletedPhotos.any { it.originalRelativePath == fileName })
+            permanentlyDeletePhotos(
+                context,
+                data.deletedPhotos,
+                data.deletedPhotos.filter { it.originalRelativePath == fileName }.map { it.id }.toSet(),
+            )
+        } finally {
+            original.delete()
+        }
+    }
+
+    @Test
+    fun reservedAndHiddenAlbumNamesAreRejected() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+
+        listOf("Media", ".recent_deleted", ".hidden", AllAlbumName, "\u56fe\u7247", "\u89c6\u9891", "\u5f55\u50cf").forEach { name ->
+            assertEquals(name, AlbumCreateResult.InvalidName, createAlbumFolder(context, name))
+        }
+    }
 }
