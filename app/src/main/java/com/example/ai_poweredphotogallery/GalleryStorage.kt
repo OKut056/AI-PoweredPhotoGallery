@@ -3,6 +3,7 @@ package com.example.ai_poweredphotogallery
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.ExifInterface
 import android.media.MediaMetadataRetriever
 import android.media.ThumbnailUtils
 import android.net.Uri
@@ -15,16 +16,25 @@ import androidx.compose.ui.graphics.Color
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.UUID
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.Locale
 private const val MediaRootName = "Media"
 private const val RecentDeletedFolderName = ".recent_deleted"
 private const val RecentDeletedIndexName = "trash_index.tsv"
-private const val MoveIndexName = "move_index.tsv"
 private const val MediaIndexFolderName = ".media_index"
 private const val HashIndexName = "hash_index.tsv"
 
+private const val DurationIndexName = "duration_index.tsv"
+private val importLock = Any()
 fun galleryRoot(context: Context): File = File(context.getExternalFilesDir(null) ?: context.filesDir, MediaRootName)
 fun ensureGalleryRoot(context: Context): Boolean = galleryRoot(context).let { it.exists() || it.mkdirs() }
 
@@ -40,7 +50,7 @@ fun createAlbumFolder(context: Context, name: String): AlbumCreateResult {
     }
 }
 
-fun importMediaFolder(context: Context, treeUri: Uri): ImportResult {
+fun importMediaFolder(context: Context, treeUri: Uri): ImportResult = synchronized(importLock) {
     val root = galleryRoot(context).apply { mkdirs() }
     val treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
     val hashIndex = loadHashIndex(context, root).toMutableMap()
@@ -48,7 +58,7 @@ fun importMediaFolder(context: Context, treeUri: Uri): ImportResult {
     // Import selected folder contents only; do not recreate the picked parent folder under Media.
     val result = importDocumentChildren(context, treeUri, treeDocumentId, root, hashIndex, existingHashes)
     writeHashIndex(context, hashIndex)
-    return result
+    result
 }
 
 private fun importDocumentChildren(
@@ -71,6 +81,7 @@ private fun importDocumentChildren(
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
             DocumentsContract.Document.COLUMN_MIME_TYPE,
         ),
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
         null,
         null,
         null,
@@ -79,24 +90,36 @@ private fun importDocumentChildren(
         val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
         val mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
         while (cursor.moveToNext()) {
+        val modifiedColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
             val childId = cursor.getString(idColumn)
             val name = cursor.getString(nameColumn).orEmpty()
             val mimeType = cursor.getString(mimeColumn).orEmpty()
             val childUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childId)
+            val sourceModified = modifiedColumn.takeIf { it >= 0 && !cursor.isNull(it) }?.let(cursor::getLong) ?: 0L
             if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
-                val result = importDocumentChildren(context, treeUri, childId, File(targetDir, safeFileName(name)), hashIndex, existingHashes)
+                val directoryName = safeDirectoryName(name)
+                val childTarget = directoryName?.let { File(targetDir, it) }
+                if (childTarget == null || !isInside(galleryRoot(context), childTarget)) {
+                    skipped++
+                    continue
+                }
+                val result = importDocumentChildren(context, treeUri, childId, childTarget, hashIndex, existingHashes)
                 imported += result.imported
                 skipped += result.skipped
                 duplicateSkipped += result.duplicateSkipped
-            } else if (isImportableMedia(mimeType, name)) {
-                val target = uniqueFile(File(targetDir, safeFileName(name)))
-                when (copyUniqueUriToFile(context, childUri, target, galleryRoot(context), hashIndex, existingHashes)) {
+            } else {
+                val importName = importFileName(mimeType, name)
+                if (importName == null) {
+                    skipped++
+                    continue
+                }
+                val mediaTime = importedMediaTimeMillis(context, childUri, mimeType, importName, sourceModified)
+                val target = uniqueFile(File(targetDir, importName))
+                when (copyUniqueUriToFile(context, childUri, target, galleryRoot(context), mediaTime, hashIndex, existingHashes)) {
                     ImportCopyResult.Imported -> imported++
                     ImportCopyResult.Duplicate -> { skipped++; duplicateSkipped++ }
                     ImportCopyResult.Failed -> skipped++
                 }
-            } else {
-                skipped++
             }
         }
     } ?: skipped++
@@ -104,7 +127,7 @@ private fun importDocumentChildren(
     return ImportResult(imported, skipped, duplicateSkipped)
 }
 
-fun importMediaFiles(context: Context, uris: List<Uri>): ImportResult {
+fun importMediaFiles(context: Context, uris: List<Uri>): ImportResult = synchronized(importLock) {
     val root = galleryRoot(context).apply { mkdirs() }
     val hashIndex = loadHashIndex(context, root).toMutableMap()
     val existingHashes = hashIndex.values.map { it.hash }.toMutableSet()
@@ -114,13 +137,17 @@ fun importMediaFiles(context: Context, uris: List<Uri>): ImportResult {
 
     uris.forEach { uri ->
         val mimeType = context.contentResolver.getType(uri).orEmpty()
-        val fileName = safeFileName(displayName(context, uri).ifBlank { uri.lastPathSegment.orEmpty() }.ifBlank { fallbackFileName(mimeType) })
-        if (!isImportableMedia(mimeType, fileName)) {
+        val fileName = importFileName(
+            mimeType,
+            displayName(context, uri).ifBlank { uri.lastPathSegment.orEmpty() }.ifBlank { fallbackFileName(mimeType) },
+        )
+        if (fileName == null) {
             skipped++
             return@forEach
         }
+        val mediaTime = importedMediaTimeMillis(context, uri, mimeType, fileName, sourceModifiedTime(context, uri))
         val target = uniqueFile(File(root, fileName))
-        when (copyUniqueUriToFile(context, uri, target, root, hashIndex, existingHashes)) {
+        when (copyUniqueUriToFile(context, uri, target, root, mediaTime, hashIndex, existingHashes)) {
             ImportCopyResult.Imported -> imported++
             ImportCopyResult.Duplicate -> { skipped++; duplicateSkipped++ }
             ImportCopyResult.Failed -> skipped++
@@ -128,14 +155,22 @@ fun importMediaFiles(context: Context, uris: List<Uri>): ImportResult {
     }
 
     if (imported > 0) writeHashIndex(context, hashIndex)
-    return ImportResult(imported, skipped, duplicateSkipped)
+    ImportResult(imported, skipped, duplicateSkipped)
 }
 fun loadGalleryData(context: Context): GalleryData {
     val root = galleryRoot(context).apply { mkdirs() }
-    val deletedIndex = readDeletedIndex(context)
+    val storedDeletedIndex = readDeletedIndex(context)
+    val deletedIndex = storedDeletedIndex.filterKeys { currentPath ->
+        val current = File(root, currentPath)
+        isInside(root, current) && current.isFile
+    }
+    if (deletedIndex.size != storedDeletedIndex.size) writeDeletedIndex(context, deletedIndex)
     val deletedPaths = deletedIndex.flatMap { listOf(it.key, it.value) }.toSet()
-    val photos = loadPhotos(root, deletedPaths, emptyMap())
-    val deletedPhotos = loadDeletedPhotos(root, deletedIndex)
+    val durationIndex = readDurationIndex(context).toMutableMap()
+    val photos = loadPhotos(root, deletedPaths, durationIndex)
+    val deletedPhotos = loadDeletedPhotos(root, deletedIndex, durationIndex)
+    durationIndex.keys.retainAll((photos + deletedPhotos).filter { it.isVideo }.map { it.relativePath }.toSet())
+    writeDurationIndex(context, durationIndex)
     val folderNames = root.listFiles()
         ?.filter { it.isDirectory && isVisibleAlbumName(it.name) }
         ?.map { it.name }
@@ -154,35 +189,29 @@ fun loadGalleryData(context: Context): GalleryData {
     )
 }
 
-fun movePhotosToAlbum(context: Context, photos: List<PhotoItem>, selectedIds: Set<Long>, albumName: String): Int {
+fun movePhotosToAlbum(context: Context, photos: List<PhotoItem>, selectedIds: Set<String>, albumName: String): Int {
     val root = galleryRoot(context)
     val safeName = safeAlbumName(albumName)
     val targetDir = if (safeName.isEmpty() || albumName == AllAlbumName) root else File(root, safeName).apply { mkdirs() }
-    val moveIndex = readMoveIndex(context).toMutableMap()
     var moved = 0
 
     photos.filter { it.id in selectedIds }.forEach { photo ->
         if (photo.albumName == safeName) return@forEach
         val source = File(photo.uri?.path.orEmpty()).takeIf { it.isFile } ?: return@forEach
-        val sourcePath = photo.relativePath.ifBlank { relativePath(root, source) }
         val target = uniqueFile(File(targetDir, source.name))
-        if (moveFile(source, target)) {
-            moveIndex.remove(sourcePath)
-            moved++
-        }
+        if (moveFile(source, target)) moved++
     }
 
-    if (moved > 0) writeMoveIndex(context, moveIndex)
     return moved
 }
 
-fun prepareDeleteRequest(context: Context, photos: List<PhotoItem>, selectedIds: Set<Long>): DeleteRequest {
+fun prepareDeleteRequest(context: Context, photos: List<PhotoItem>, selectedIds: Set<String>): DeleteRequest {
     val selected = photos.filter { it.id in selectedIds }
     val moved = movePhotosToRecentDeleted(context, selected, selectedIds)
     return DeleteRequest(localMoved = moved, skipped = selected.size - moved)
 }
 
-fun movePhotosToRecentDeleted(context: Context, photos: List<PhotoItem>, selectedIds: Set<Long>): Int =
+fun movePhotosToRecentDeleted(context: Context, photos: List<PhotoItem>, selectedIds: Set<String>): Int =
     movePhotosToRecentDeleted(context, photos, selectedIds) { photo, root, source ->
         photo.relativePath.ifBlank { relativePath(root, source) }
     }
@@ -190,13 +219,12 @@ fun movePhotosToRecentDeleted(context: Context, photos: List<PhotoItem>, selecte
 private fun movePhotosToRecentDeleted(
     context: Context,
     photos: List<PhotoItem>,
-    selectedIds: Set<Long>,
+    selectedIds: Set<String>,
     originalPathFor: (PhotoItem, File, File) -> String,
 ): Int {
     val root = galleryRoot(context)
     val trash = recentDeletedFolder(root).apply { mkdirs() }
     val index = readDeletedIndex(context).toMutableMap()
-    val moveIndex = readMoveIndex(context).toMutableMap()
     var moved = 0
 
     photos.filter { it.id in selectedIds }.forEach { photo ->
@@ -204,18 +232,15 @@ private fun movePhotosToRecentDeleted(
         val physicalPath = photo.relativePath.ifBlank { relativePath(root, source) }
         val originalPath = originalPathFor(photo, root, source).ifBlank { physicalPath }
         val physicalTarget = uniqueFile(File(trash, source.name))
+        val currentPath = relativePath(root, physicalTarget)
+        val updatedIndex = index + (currentPath to originalPath)
+        if (!writeDeletedIndex(context, updatedIndex)) return@forEach
         if (moveFile(source, physicalTarget)) {
-            val currentPath = relativePath(root, physicalTarget)
             index[currentPath] = originalPath
-            moveIndex.remove(physicalPath)
-            moveIndex.remove(originalPath)
             moved++
+        } else {
+            writeDeletedIndex(context, index)
         }
-    }
-
-    if (moved > 0) {
-        writeDeletedIndex(context, index)
-        writeMoveIndex(context, moveIndex)
     }
     return moved
 }
@@ -228,19 +253,19 @@ fun deleteEmptyAlbumFolders(context: Context, albumNames: Set<String>): Int {
         .count { name -> deleteDirectoryIfEmpty(File(root, name)) }
 }
 
-fun deleteAlbumsToRecentDeleted(context: Context, photos: List<PhotoItem>, albumNames: Set<String>): Int {
+fun deleteAlbumsToRecentDeleted(context: Context, photos: List<PhotoItem>, albumNames: Set<String>): DeleteAlbumResult {
     val names = (albumNames - AllAlbumName).map { safeAlbumName(it) }.filter { it.isNotEmpty() }.toSet()
-    if (names.isEmpty()) return 0
+    if (names.isEmpty()) return DeleteAlbumResult(0, 0)
     val albumPhotos = photos.filter { safeAlbumName(it.albumName) in names }
     val moved = movePhotosToRecentDeleted(context, albumPhotos, albumPhotos.map { it.id }.toSet()) { photo, root, source ->
         photo.relativePath.ifBlank { relativePath(root, source) }
     }
     val root = galleryRoot(context)
-    names.forEach { name -> deleteDirectoryIfEmpty(File(root, name)) }
-    return moved
+    val removedFolders = names.count { name -> deleteDirectoryIfEmpty(File(root, name)) }
+    return DeleteAlbumResult(moved, removedFolders)
 }
 
-fun restoreDeletedPhotos(context: Context, photos: List<PhotoItem>, selectedIds: Set<Long>): RestoreResult {
+fun restoreDeletedPhotos(context: Context, photos: List<PhotoItem>, selectedIds: Set<String>): RestoreResult {
     val root = galleryRoot(context)
     val index = readDeletedIndex(context).toMutableMap()
     var restored = 0
@@ -249,7 +274,9 @@ fun restoreDeletedPhotos(context: Context, photos: List<PhotoItem>, selectedIds:
         val source = File(photo.uri?.path.orEmpty()).takeIf { it.isFile } ?: return@forEach
         val currentPath = photo.relativePath.ifBlank { relativePath(root, source) }
         val originalPath = photo.originalRelativePath.ifBlank { index[currentPath].orEmpty() }.ifBlank { source.name }
-        val target = uniqueFile(File(root, originalPath)).also { it.parentFile?.mkdirs() }
+        val originalTarget = File(root, originalPath)
+        if (!isInside(root, originalTarget)) return@forEach
+        val target = uniqueFile(originalTarget).also { it.parentFile?.mkdirs() }
         if (moveFile(source, target)) {
             index.remove(currentPath)
             restored++
@@ -260,7 +287,7 @@ fun restoreDeletedPhotos(context: Context, photos: List<PhotoItem>, selectedIds:
     return RestoreResult(restored)
 }
 
-fun permanentlyDeletePhotos(context: Context, photos: List<PhotoItem>, selectedIds: Set<Long>): Int {
+fun permanentlyDeletePhotos(context: Context, photos: List<PhotoItem>, selectedIds: Set<String>): Int {
     val root = galleryRoot(context)
     val index = readDeletedIndex(context).toMutableMap()
     var deleted = 0
@@ -278,34 +305,35 @@ fun permanentlyDeletePhotos(context: Context, photos: List<PhotoItem>, selectedI
     return deleted
 }
 
-private fun loadPhotos(root: File, deletedOriginalPaths: Set<String>, moveIndex: Map<String, String>): List<PhotoItem> =
+private fun loadPhotos(root: File, deletedOriginalPaths: Set<String>, durationIndex: MutableMap<String, DurationIndexEntry>): List<PhotoItem> =
     root.walkTopDown()
-        .onEnter { it.name != RecentDeletedFolderName }
+        .onEnter { it == root || isVisibleAlbumName(it.name) }
         .filter { it.isFile && it.extension.lowercase(Locale.ROOT) in mediaExtensions }
         .filter { isVisibleMediaPath(relativePath(root, it)) }
         .filter { relativePath(root, it) !in deletedOriginalPaths }
         .sortedByDescending { it.lastModified() }
         .map { file ->
             val path = relativePath(root, file)
-            val parent = moveIndex[path] ?: topAlbumName(path)
+            val parent = topAlbumName(path)
             PhotoItem(
-                id = file.absolutePath.hashCode().toLong(),
+                id = path,
                 uri = Uri.fromFile(file),
                 dateMillis = file.lastModified(),
                 name = file.name,
                 albumName = parent,
                 relativePath = path,
                 type = mediaType(file),
-                durationMillis = videoDurationMillis(file),
+                durationMillis = cachedVideoDuration(root, file, durationIndex),
             )
         }
         .toList()
 
-private fun loadDeletedPhotos(root: File, index: Map<String, String>): List<PhotoItem> =
+private fun loadDeletedPhotos(root: File, index: Map<String, String>, durationIndex: MutableMap<String, DurationIndexEntry>): List<PhotoItem> =
     index.mapNotNull { (currentPath, originalPath) ->
-        val file = File(root, currentPath).takeIf { it.isFile && it.extension.lowercase(Locale.ROOT) in mediaExtensions } ?: return@mapNotNull null
+        val candidate = File(root, currentPath)
+        val file = candidate.takeIf { isInside(root, it) && it.isFile && it.extension.lowercase(Locale.ROOT) in mediaExtensions } ?: return@mapNotNull null
         PhotoItem(
-            id = file.absolutePath.hashCode().toLong(),
+            id = currentPath,
             uri = Uri.fromFile(file),
             dateMillis = file.lastModified(),
             name = file.name,
@@ -313,7 +341,7 @@ private fun loadDeletedPhotos(root: File, index: Map<String, String>): List<Phot
             relativePath = currentPath,
             originalRelativePath = originalPath,
             type = mediaType(file),
-            durationMillis = videoDurationMillis(file),
+            durationMillis = cachedVideoDuration(root, file, durationIndex),
         )
     }.sortedByDescending { it.dateMillis }
 
@@ -322,7 +350,6 @@ fun photosForAlbum(albumName: String, photos: List<PhotoItem>): List<PhotoItem> 
 
 private fun recentDeletedFolder(root: File): File = File(root, RecentDeletedFolderName)
 private fun deletedIndexFile(context: Context): File = File(File(context.filesDir, RecentDeletedFolderName).apply { mkdirs() }, RecentDeletedIndexName)
-private fun moveIndexFile(context: Context): File = File(File(context.filesDir, RecentDeletedFolderName).apply { mkdirs() }, MoveIndexName)
 
 private fun readDeletedIndex(context: Context): Map<String, String> = runCatching {
     val file = deletedIndexFile(context)
@@ -333,27 +360,29 @@ private fun readDeletedIndex(context: Context): Map<String, String> = runCatchin
     }.toMap()
 }.getOrDefault(emptyMap())
 
-private fun writeDeletedIndex(context: Context, index: Map<String, String>) {
-    runCatching {
-        val file = deletedIndexFile(context)
-        file.writeText(index.entries.joinToString("\n") { it.key + "\t" + it.value })
-    }
-}
-private fun readMoveIndex(context: Context): Map<String, String> = runCatching {
-    val file = moveIndexFile(context)
-    if (!file.isFile) return emptyMap()
-    file.readLines().mapNotNull { line ->
-        val tab = line.indexOf('\t')
-        if (tab <= 0) null else line.take(tab) to line.drop(tab + 1)
-    }.toMap()
-}.getOrDefault(emptyMap())
+private fun writeDeletedIndex(context: Context, index: Map<String, String>): Boolean =
+    writeAtomically(deletedIndexFile(context), index.entries.joinToString("\n") { it.key + "\t" + it.value })
 
-private fun writeMoveIndex(context: Context, index: Map<String, String>) {
-    runCatching {
-        val file = moveIndexFile(context)
-        file.writeText(index.entries.joinToString("\n") { it.key + "\t" + it.value })
+private fun writeAtomically(file: File, text: String): Boolean = runCatching {
+    file.parentFile?.mkdirs()
+    val temporary = File(file.parentFile, ".${file.name}.${UUID.randomUUID()}.tmp")
+    try {
+        temporary.writeText(text)
+        runCatching {
+            Files.move(
+                temporary.toPath(),
+                file.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }.recoverCatching {
+            Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }.getOrThrow()
+        true
+    } finally {
+        temporary.delete()
     }
-}
+}.getOrDefault(false)
 
 private fun deleteDirectoryIfEmpty(folder: File): Boolean {
     if (!folder.isDirectory) return false
@@ -390,25 +419,107 @@ private fun fallbackFileName(mimeType: String): String {
     return "media_${System.currentTimeMillis()}$extension"
 }
 
-private fun copyUriToFile(context: Context, uri: Uri, target: File): Boolean = runCatching {
-    target.parentFile?.mkdirs()
+private fun sourceModifiedTime(context: Context, uri: Uri): Long {
+    if (uri.scheme == "file") return File(uri.path.orEmpty()).lastModified()
+    return runCatching {
+        context.contentResolver.query(
+            uri,
+            arrayOf(DocumentsContract.Document.COLUMN_LAST_MODIFIED),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else 0L
+        } ?: 0L
+    }.getOrDefault(0L)
+}
+
+private fun importedMediaTimeMillis(
+    context: Context,
+    uri: Uri,
+    mimeType: String,
+    fileName: String,
+    sourceModified: Long,
+): Long {
+    val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
+    val embedded = when {
+        mimeType.startsWith("video/") || extension in videoExtensions -> videoCreationTimeMillis(context, uri)
+        mimeType.startsWith("image/") || extension in imageExtensions -> imageCreationTimeMillis(context, uri)
+        else -> null
+    }
+    return embedded?.takeIf { it > 0L } ?: sourceModified.takeIf { it > 0L } ?: System.currentTimeMillis()
+}
+
+@Suppress("DEPRECATION")
+private fun imageCreationTimeMillis(context: Context, uri: Uri): Long? = runCatching {
     context.contentResolver.openInputStream(uri)?.use { input ->
-        target.outputStream().use { output -> input.copyTo(output) }
-    } ?: return@runCatching false
-    true
-}.getOrDefault(false)
+        val exif = ExifInterface(input)
+        listOf(ExifInterface.TAG_DATETIME_ORIGINAL, ExifInterface.TAG_DATETIME_DIGITIZED, ExifInterface.TAG_DATETIME)
+            .firstNotNullOfOrNull { tag -> exif.getAttribute(tag)?.let(::parseExifTime) }
+    }
+}.getOrNull()
+
+private fun parseExifTime(value: String): Long? = runCatching {
+    LocalDateTime.parse(value, DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss", Locale.ROOT))
+        .atZone(ZoneId.systemDefault())
+        .toInstant()
+        .toEpochMilli()
+}.getOrNull()
+
+private fun videoCreationTimeMillis(context: Context, uri: Uri): Long? = runCatching {
+    val retriever = MediaMetadataRetriever()
+    try {
+        if (uri.scheme == "file") retriever.setDataSource(uri.path.orEmpty()) else retriever.setDataSource(context, uri)
+        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE)?.let(::parseVideoTime)
+    } finally {
+        retriever.release()
+    }
+}.getOrNull()
+
+private fun parseVideoTime(value: String): Long? {
+    val parsers = listOf<() -> Long>(
+        { Instant.parse(value).toEpochMilli() },
+        { OffsetDateTime.parse(value).toInstant().toEpochMilli() },
+        { OffsetDateTime.parse(value, DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSX", Locale.ROOT)).toInstant().toEpochMilli() },
+        {
+            LocalDateTime.parse(value, DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSS", Locale.ROOT))
+                .atZone(ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli()
+        },
+    )
+    return parsers.firstNotNullOfOrNull { parser -> runCatching(parser).getOrNull() }
+}
+
+private fun copyUriToFile(context: Context, uri: Uri, target: File, mediaTimeMillis: Long): Boolean {
+    target.parentFile?.mkdirs()
+    val temporary = File(target.parentFile, ".${target.name}.${UUID.randomUUID()}.partial")
+    return runCatching {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            temporary.outputStream().use { output -> input.copyTo(output) }
+        } ?: return@runCatching false
+        check(temporary.renameTo(target))
+        if (mediaTimeMillis > 0L) target.setLastModified(mediaTimeMillis)
+        true
+    }.getOrElse {
+        temporary.delete()
+        false
+    }
+}
 
 private fun copyUniqueUriToFile(
     context: Context,
     uri: Uri,
     target: File,
     root: File,
+    mediaTimeMillis: Long,
     hashIndex: MutableMap<String, HashIndexEntry>,
     existingHashes: MutableSet<String>,
 ): ImportCopyResult {
+    if (!isInside(root, target)) return ImportCopyResult.Failed
     val hash = contentHash(context, uri) ?: return ImportCopyResult.Failed
     if (!existingHashes.add(hash)) return ImportCopyResult.Duplicate
-    if (!copyUriToFile(context, uri, target)) {
+    if (!copyUriToFile(context, uri, target, mediaTimeMillis)) {
         existingHashes.remove(hash)
         return ImportCopyResult.Failed
     }
@@ -417,13 +528,14 @@ private fun copyUniqueUriToFile(
     return ImportCopyResult.Imported
 }
 
+private data class DurationIndexEntry(val path: String, val size: Long, val modified: Long, val duration: Long)
 private enum class ImportCopyResult { Imported, Duplicate, Failed }
 private data class HashIndexEntry(val path: String, val size: Long, val modified: Long, val hash: String)
 
 private fun loadHashIndex(context: Context, root: File): Map<String, HashIndexEntry> {
     val index = readHashIndex(context).toMutableMap()
     val files = root.walkTopDown()
-        .onEnter { it.name != RecentDeletedFolderName }
+        .onEnter { it == root || isVisibleAlbumName(it.name) }
         .filter { it.isFile && it.extension.lowercase(Locale.ROOT) in mediaExtensions }
         .filter { isVisibleMediaPath(relativePath(root, it)) }
         .toList()
@@ -434,7 +546,12 @@ private fun loadHashIndex(context: Context, root: File): Map<String, HashIndexEn
         val path = relativePath(root, file)
         val cached = index[path]
         if (cached?.size == file.length() && cached.modified == file.lastModified()) return@forEach
-        contentHash(file)?.let { hash -> index[path] = HashIndexEntry(path, file.length(), file.lastModified(), hash) }
+        val hash = contentHash(file)
+        if (hash == null) {
+            index.remove(path)
+        } else {
+            index[path] = HashIndexEntry(path, file.length(), file.lastModified(), hash)
+        }
     }
 
     writeHashIndex(context, index)
@@ -456,11 +573,44 @@ private fun readHashIndex(context: Context): Map<String, HashIndexEntry> = runCa
     }.toMap()
 }.getOrDefault(emptyMap())
 
-private fun writeHashIndex(context: Context, index: Map<String, HashIndexEntry>) {
-    runCatching {
-        hashIndexFile(context).writeText(index.values.joinToString("\n") { encodeIndexPath(it.path) + "\t" + it.size + "\t" + it.modified + "\t" + it.hash })
-    }
+
+private fun durationIndexFile(context: Context): File = File(File(context.filesDir, MediaIndexFolderName).apply { mkdirs() }, DurationIndexName)
+
+private fun readDurationIndex(context: Context): Map<String, DurationIndexEntry> = runCatching {
+    val file = durationIndexFile(context)
+    if (!file.isFile) return emptyMap()
+    file.readLines().mapNotNull { line ->
+        val parts = line.split('\t')
+        if (parts.size != 4) return@mapNotNull null
+        val path = decodeIndexPath(parts[0]).ifBlank { return@mapNotNull null }
+        val size = parts[1].toLongOrNull() ?: return@mapNotNull null
+        val modified = parts[2].toLongOrNull() ?: return@mapNotNull null
+        val duration = parts[3].toLongOrNull() ?: return@mapNotNull null
+        path to DurationIndexEntry(path, size, modified, duration)
+    }.toMap()
+}.getOrDefault(emptyMap())
+
+private fun writeDurationIndex(context: Context, index: Map<String, DurationIndexEntry>): Boolean =
+    writeAtomically(
+        durationIndexFile(context),
+        index.values.joinToString("\n") { encodeIndexPath(it.path) + "\t" + it.size + "\t" + it.modified + "\t" + it.duration },
+    )
+
+private fun cachedVideoDuration(
+    root: File,
+    file: File,
+    index: MutableMap<String, DurationIndexEntry>,
+): Long {
+    if (mediaType(file) != MediaType.Video) return 0L
+    val path = relativePath(root, file)
+    val cached = index[path]
+    if (cached?.size == file.length() && cached.modified == file.lastModified()) return cached.duration
+    val duration = videoDurationMillis(file)
+    index[path] = DurationIndexEntry(path, file.length(), file.lastModified(), duration)
+    return duration
 }
+private fun writeHashIndex(context: Context, index: Map<String, HashIndexEntry>): Boolean =
+    writeAtomically(hashIndexFile(context), index.values.joinToString("\n") { encodeIndexPath(it.path) + "\t" + it.size + "\t" + it.modified + "\t" + it.hash })
 
 private fun encodeIndexPath(path: String): String = Base64.getUrlEncoder().withoutPadding().encodeToString(path.toByteArray(Charsets.UTF_8))
 private fun decodeIndexPath(path: String): String = runCatching { String(Base64.getUrlDecoder().decode(path), Charsets.UTF_8) }.getOrDefault("")
@@ -484,14 +634,29 @@ private fun sha256(input: InputStream): String {
     return Base64.getEncoder().encodeToString(digest.digest())
 }
 
-private fun isImportableMedia(mimeType: String, fileName: String): Boolean {
-    val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
-    return mimeType.startsWith("image/") || mimeType.startsWith("video/") || extension in imageExtensions || extension in videoExtensions
+private fun safeFileName(name: String): String =
+    name.trim().substringAfterLast('/').substringAfterLast('\\').replace(Regex("[\\/:*?\"<>|]"), "_")
+        .takeUnless { it.isBlank() || it == "." || it == ".." }
+        ?: "media_${System.currentTimeMillis()}"
+
+private fun safeDirectoryName(name: String): String? =
+    name.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_").takeUnless { it.isBlank() || it == "." || it == ".." }
+
+private fun safeAlbumName(name: String): String = safeDirectoryName(name).orEmpty()
+
+private fun importFileName(mimeType: String, name: String): String? {
+    val safeName = safeFileName(name)
+    if (safeName.substringAfterLast('.', "").lowercase(Locale.ROOT) in mediaExtensions) return safeName
+    val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)?.lowercase(Locale.ROOT)
+        ?.takeIf { it in mediaExtensions && (mimeType.startsWith("image/") || mimeType.startsWith("video/")) }
+        ?: return null
+    val base = safeName.substringBeforeLast('.', safeName).ifBlank { "media_${System.currentTimeMillis()}" }
+    return "$base.$extension"
 }
 
-private fun safeFileName(name: String): String =
-    name.trim().substringAfterLast('/').substringAfterLast('\\').replace(Regex("[\\/:*?\"<>|]"), "_").ifBlank { "media_${System.currentTimeMillis()}" }
-private fun safeAlbumName(name: String): String = name.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_")
+private fun isInside(root: File, target: File): Boolean = runCatching {
+    target.canonicalFile.toPath().startsWith(root.canonicalFile.toPath())
+}.getOrDefault(false)
 
 private fun topAlbumName(path: String): String =
     path.substringBefore('/', missingDelimiterValue = "")

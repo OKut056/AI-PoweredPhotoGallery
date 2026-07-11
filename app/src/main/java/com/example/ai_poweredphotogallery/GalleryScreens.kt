@@ -21,10 +21,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -34,7 +32,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -60,20 +57,15 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -136,18 +128,17 @@ fun PhotosScreen(
     onImportFolder: () -> Unit = {},
     onImportFiles: () -> Unit = {},
     onSelectionActiveChange: (Boolean) -> Unit = {},
-    onOpenPhoto: (Long) -> Unit = {},
+    onOpenPhoto: (String) -> Unit = {},
     albums: List<AlbumItem> = emptyList(),
-    onDeletePhotos: (Set<Long>) -> Unit = {},
-    onMovePhotos: (Set<Long>, String) -> Unit = { _, _ -> },
+    onDeletePhotos: (Set<String>) -> Unit = {},
+    onMovePhotos: (Set<String>, String) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     var density by rememberSaveable { mutableStateOf(PhotoDensity.Normal) }
     var selecting by rememberSaveable { mutableStateOf(false) }
-    var selectedIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
-    var pendingDeleteIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
-    var pendingMoveIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
-    var draggingFastScroll by remember { mutableStateOf(false) }
+    var selectedIds by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    var pendingDeleteIds by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    var pendingMoveIds by rememberSaveable { mutableStateOf(emptySet<String>()) }
     val gridState = rememberLazyGridState()
     val sections = remember(photos) { photoSections(photos) }
     val currentDate = currentDateFor(gridState, sections)
@@ -158,7 +149,7 @@ fun PhotosScreen(
         selectedIds = emptySet()
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(Color.White)) {
+    Box(Modifier.fillMaxSize().background(Color.White)) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(density.columns),
             state = gridState,
@@ -220,9 +211,7 @@ fun PhotosScreen(
             }
         }
 
-        if (gridState.isScrollInProgress || draggingFastScroll) DateBubble(currentDate, Modifier.align(Alignment.Center))
-        val y = (maxHeight - 92.dp) * scrollProgress(gridState)
-        FastScrollHandle(Modifier.align(Alignment.TopEnd).offset(y = y)) { draggingFastScroll = it }
+        if (gridState.isScrollInProgress) DateBubble(currentDate, Modifier.align(Alignment.Center))
         if (selecting && selectedIds.isNotEmpty()) SelectionActionBar(selectedIds.size, Modifier.align(Alignment.BottomCenter)) { action ->
             if (action == "\u5220\u9664") {
                 pendingDeleteIds = selectedIds
@@ -271,7 +260,7 @@ fun AlbumsScreen(
     onOpenDeleted: () -> Unit = {},
     onCreateAlbum: (String) -> Unit = {},
     onSelectionActiveChange: (Boolean) -> Unit = {},
-    onOpenPhoto: (Long) -> Unit = {},
+    onOpenPhoto: (String) -> Unit = {},
     onDeleteAlbums: (Set<String>) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -385,19 +374,18 @@ fun AlbumDetailScreen(
     albumName: String,
     photos: List<PhotoItem> = emptyList(),
     onBack: () -> Unit,
-    onSortClick: () -> Unit,
     onOpenSettings: () -> Unit = {},
     onSelectionActiveChange: (Boolean) -> Unit = {},
-    onOpenPhoto: (Long) -> Unit = {},
+    onOpenPhoto: (String) -> Unit = {},
     albums: List<AlbumItem> = emptyList(),
-    onDeletePhotos: (Set<Long>) -> Unit = {},
-    onMovePhotos: (Set<Long>, String) -> Unit = { _, _ -> },
+    onDeletePhotos: (Set<String>) -> Unit = {},
+    onMovePhotos: (Set<String>, String) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     var selecting by rememberSaveable { mutableStateOf(false) }
-    var selectedIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
-    var pendingDeleteIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
-    var pendingMoveIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
+    var selectedIds by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    var pendingDeleteIds by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    var pendingMoveIds by rememberSaveable { mutableStateOf(emptySet<String>()) }
 
     LaunchedEffect(selecting) { onSelectionActiveChange(selecting) }
     BackHandler(enabled = selecting) {
@@ -431,9 +419,7 @@ fun AlbumDetailScreen(
                 Row(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 22.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("\u2193", fontSize = 28.sp, color = Ink)
                     Spacer(Modifier.width(10.dp))
-                    TextButton(onClick = onSortClick, contentPadding = PaddingValues(0.dp)) {
-                        Text("\u6309\u62cd\u6444\u65f6\u95f4 \u65b0\u5230\u65e7 \u2304", color = Ink, fontFamily = FontFamily.Cursive, fontSize = 24.sp)
-                    }
+                    Text("\u6309\u4fee\u6539\u65f6\u95f4 \u65b0\u5230\u65e7", color = Ink, fontFamily = FontFamily.Cursive, fontSize = 24.sp)
                 }
             }
             if (photos.isEmpty()) {
@@ -496,12 +482,12 @@ fun AlbumDetailScreen(
 fun RecentDeletedScreen(
     photos: List<PhotoItem>,
     onBack: () -> Unit,
-    onRestorePhotos: (Set<Long>) -> Unit,
-    onPermanentDelete: (Set<Long>) -> Unit,
+    onRestorePhotos: (Set<String>) -> Unit,
+    onPermanentDelete: (Set<String>) -> Unit,
 ) {
     var selecting by rememberSaveable { mutableStateOf(false) }
-    var selectedIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
-    var pendingPermanentDeleteIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
+    var selectedIds by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    var pendingPermanentDeleteIds by rememberSaveable { mutableStateOf(emptySet<String>()) }
 
     BackHandler(enabled = selecting) {
         selecting = false
@@ -581,9 +567,9 @@ fun RecentDeletedScreen(
 @Composable
 fun PhotoViewerScreen(
     photos: List<PhotoItem>,
-    photoId: Long,
+    photoId: String,
     onBack: () -> Unit,
-    onDeletePhoto: (Long) -> Unit = {},
+    onDeletePhoto: (String) -> Unit = {},
 ) {
     var index by remember(photoId, photos) { mutableStateOf(photos.indexOfFirst { it.id == photoId }.coerceAtLeast(0)) }
     val photo = photos.getOrNull(index)
@@ -591,7 +577,7 @@ fun PhotoViewerScreen(
     var scale by remember { mutableStateOf(1f) }
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
-    var pendingDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var pendingDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(index) {
         scale = 1f
@@ -741,55 +727,12 @@ private fun ViewerAction(icon: String, label: String, onClick: (() -> Unit)? = n
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SortSheet(onDismiss: () -> Unit) {
-    var selected by rememberSaveable { mutableStateOf("\u6309\u62cd\u6444\u65f6\u95f4") }
-    var descending by rememberSaveable { mutableStateOf(true) }
-    val options = listOf("\u6309\u62cd\u6444\u65f6\u95f4", "\u6309\u4fee\u6539\u65f6\u95f4", "\u6309\u521b\u5efa\u65f6\u95f4", "\u6309\u540d\u79f0", "\u6309\u5927\u5c0f")
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = Color.White,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-    ) {
-        Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
-            Text("\u6392\u5e8f", Modifier.align(Alignment.Center), fontFamily = FontFamily.Cursive, fontWeight = FontWeight.Bold, fontSize = 28.sp, color = Ink)
-            IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterEnd)) { Icon(Icons.Default.Close, contentDescription = "\u5173\u95ed", tint = Ink) }
-        }
-        Spacer(Modifier.height(18.dp))
-        options.forEach { option ->
-            Row(Modifier.fillMaxWidth().height(78.dp).padding(horizontal = 28.dp), verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = selected == option, onClick = { selected = option }, colors = RadioButtonDefaults.colors(selectedColor = Accent))
-                Spacer(Modifier.width(18.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(option, fontFamily = FontFamily.Cursive, fontSize = 25.sp, color = Ink)
-                    if (selected == option && option == options.first()) Text(if (descending) "\u65b0\u5230\u65e7" else "\u65e7\u5230\u65b0", color = Muted, fontSize = 14.sp)
-                }
-                if (selected == option) {
-                    Surface(color = Color(0xFFF4F4F4), shape = RoundedCornerShape(22.dp)) {
-                        Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                            TextButton(onClick = { descending = false }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("\u2191", color = if (descending) Muted else Ink, fontSize = 22.sp) }
-                            TextButton(onClick = { descending = true }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("\u2193", color = if (descending) Ink else Muted, fontSize = 22.sp) }
-                        }
-                    }
-                }
-            }
-            HorizontalDivider(color = SoftLine, modifier = Modifier.padding(start = 98.dp))
-        }
-        TextButton(
-            onClick = { selected = options.first(); descending = true },
-            modifier = Modifier.fillMaxWidth().height(72.dp),
-            colors = ButtonDefaults.textButtonColors(contentColor = Accent),
-        ) { Text("\u6062\u590d\u9ed8\u8ba4", fontFamily = FontFamily.Cursive, fontSize = 22.sp) }
-    }
-}
 
 @Composable
 fun SearchScreen(
     photos: List<PhotoItem> = emptyList(),
     onBack: () -> Unit = {},
-    onOpenPhoto: (Long) -> Unit = {},
+    onOpenPhoto: (String) -> Unit = {},
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     val results = remember(photos, query) { searchAiIndex(photos, query) }
@@ -1038,9 +981,9 @@ private class GalleryVideoView(
 
     private val progressTick = object : Runnable {
         override fun run() {
-            val current = player?.currentPosition ?: 0
+            val current = runCatching { player?.currentPosition }.getOrNull() ?: return
             if (!userSeeking) seekBar.progress = current.coerceAtMost(seekBar.max)
-            handler.postDelayed(this, 250L)
+            if (runCatching { player?.isPlaying == true }.getOrDefault(false)) handler.postDelayed(this, 250L)
         }
     }
 
@@ -1107,15 +1050,22 @@ private class GalleryVideoView(
                 updateVideoSize(mediaPlayer.videoWidth, mediaPlayer.videoHeight)
                 mediaPlayer.seekTo(1)
                 updateControls()
-                handler.removeCallbacks(progressTick)
-                handler.post(progressTick)
             }
             next.setOnCompletionListener {
                 completed = true
                 seekBar.progress = seekBar.max
+                handler.removeCallbacks(progressTick)
                 updateControls()
             }
-            next.setOnErrorListener { _, _, _ -> onError(); true }
+            next.setOnErrorListener { _, _, _ ->
+                handler.post {
+                    if (player === next) {
+                        releasePlayer()
+                        onError()
+                    }
+                }
+                true
+            }
             next.prepareAsync()
         } catch (_: Exception) {
             releasePlayer()
@@ -1128,12 +1078,15 @@ private class GalleryVideoView(
         if (!prepared) return
         if (current.isPlaying) {
             current.pause()
+            handler.removeCallbacks(progressTick)
         } else {
             if (completed) {
                 completed = false
                 current.seekTo(0)
             }
             current.start()
+            handler.removeCallbacks(progressTick)
+            handler.post(progressTick)
         }
         updateControls()
     }
@@ -1407,27 +1360,6 @@ private fun DateBubble(date: String, modifier: Modifier = Modifier) {
     }
 }
 
-@Composable
-private fun FastScrollHandle(modifier: Modifier = Modifier, onDragChange: (Boolean) -> Unit) {
-    Surface(
-        color = Color.White.copy(alpha = 0.95f),
-        shape = RoundedCornerShape(topStart = 18.dp, bottomStart = 18.dp),
-        shadowElevation = 2.dp,
-        modifier = modifier.width(54.dp).height(92.dp).pointerInput(Unit) {
-            detectVerticalDragGestures(
-                onDragStart = { onDragChange(true) },
-                onDragEnd = { onDragChange(false) },
-                onDragCancel = { onDragChange(false) },
-                onVerticalDrag = { _, _ -> onDragChange(true) }
-            )
-        }
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text("\u2303", color = Color(0xFF666666), fontSize = 26.sp)
-            Text("\u2304", color = Color(0xFF666666), fontSize = 26.sp)
-        }
-    }
-}
 
 private fun currentDateFor(state: LazyGridState, sections: List<PhotoSection>): String {
     val first = state.firstVisibleItemIndex
@@ -1489,7 +1421,7 @@ private fun AlbumsPreview() { AIPoweredPhotoGalleryTheme { AlbumsScreen(onAlbumC
 
 @Preview(showBackground = true)
 @Composable
-private fun AlbumDetailPreview() { AIPoweredPhotoGalleryTheme { AlbumDetailScreen("\u6d4b\u8bd5\u76f8\u518c", photos = emptyList(), onBack = {}, onSortClick = {}) } }
+private fun AlbumDetailPreview() { AIPoweredPhotoGalleryTheme { AlbumDetailScreen("\u6d4b\u8bd5\u76f8\u518c", photos = emptyList(), onBack = {}) } }
 
 @Preview(showBackground = true)
 @Composable

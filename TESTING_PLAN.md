@@ -1,0 +1,125 @@
+# Testing Plan
+
+Last updated: 2026-07-10
+
+## Start Here
+
+Read `PROJECT_CONTEXT.md`, `NEXT_SESSION.md`, then this file before testing.
+
+The current priority is core gallery quality: import, duplicate detection, albums, video playback, delete/restore, search, and selection behavior. AI/chat/feed features are deferred.
+
+## About The Media Info Page
+
+The proposed media info page is not a throwaway test page and not automation by itself.
+
+It should be a real user-facing detail view opened from the photo/video viewer info action. It is useful because it exposes the same foundation automated tests need to trust:
+
+- file name
+- workspace relative path
+- file size
+- image dimensions or video duration
+- media type
+- modified time
+- SHA-256 hash when available
+
+Build it when the gallery needs better inspectability. It can then double as a manual QA screen.
+
+## What Codex Can Test Automatically
+
+Run these before committing:
+
+```powershell
+.\gradlew.bat :app:compileDebugKotlin
+.\gradlew.bat :app:compileDebugAndroidTestKotlin
+.\gradlew.bat :app:testDebugUnitTest
+```
+
+If an emulator or device is connected, also run:
+
+```powershell
+.\gradlew.bat :app:connectedDebugAndroidTest
+```
+
+Gradle may need permission to write to `C:\Users\lll\.gradle`.
+
+On this Windows setup, `:app:testDebugUnitTest` can fail before running assertions if the Java path with `Program Files` is split incorrectly by the Gradle test executor. Treat that as an environment failure, not an app test failure, unless the test report shows assertion failures.
+
+The current machine has a malformed quoted Java entry in `PATH`. Run Gradle tests with a process-local cleanup; this does not change system settings:
+
+```powershell
+$env:PATH=$env:PATH.Replace(';"D:\Program Files\java\jdk-21\bin;D:\Program Files\java\jdk-21\jre\bin;"','')
+$env:CLASSPATH=''
+.\gradlew.bat :app:testDebugUnitTest --no-daemon
+```
+
+## Current Automated Coverage
+
+`app/src/test/java/com/example/ai_poweredphotogallery/AiSearchTest.kt`
+
+- metadata search matches album and Chinese video terms
+- blank query sorts newest first
+
+`app/src/androidTest/java/com/example/ai_poweredphotogallery/ExampleInstrumentedTest.kt`
+
+- app package context loads
+- deleting an album moves media to recent deleted and restore recreates the missing album
+- restore respects recorded original album path
+- deleting a top-level album removes nested empty folders after moving media to trash
+- moving a root media file into an album physically moves the file
+- importing a renamed duplicate skips it by SHA-256 content hash and reports `duplicateSkipped`
+- Java-hash-colliding paths still receive distinct media IDs
+- stale trash-index entries are pruned without hiding the original media
+- importing media without embedded metadata preserves the source file time
+
+## Manual Device Smoke Test
+
+Use a real device or emulator after automated tests pass.
+
+1. Install and open the app.
+2. Import several image files.
+3. Import the same files again under different names.
+4. Confirm the toast says imported count and duplicate skip count separately.
+5. Confirm the grid does not show duplicate copies.
+6. Import a folder with nested child folders.
+7. Confirm root files appear in all items and top-level child folders become albums.
+8. Open a video and verify thumbnail, duration overlay, playback, pause/play, and progress drag.
+9. Delete media, then restore it from recent deleted.
+10. Permanently delete a media item from recent deleted only after confirmation.
+11. Search by file name, album name, path fragment, and media type terms such as `video`.
+
+## Test Media Setup
+
+Push media into the app workspace if direct import is not enough:
+
+```powershell
+adb shell mkdir -p /sdcard/Android/data/com.example.ai_poweredphotogallery/files/Media
+adb push "D:\some-local-folder\." /sdcard/Android/data/com.example.ai_poweredphotogallery/files/Media/
+```
+
+Subfolders become albums:
+
+```text
+Media/Travel/a.jpg
+Media/Memes/b.png
+```
+
+## Next Tests To Add
+
+Add the smallest useful tests first:
+
+- import result distinguishes duplicate skips from other skips
+- hash index reuses cached hashes when size and modified time are unchanged
+- hash index recalculates when an existing file changes
+- media info page displays path, size, type, duration/dimensions, and hash
+- sort/filter behavior once real sorting/filtering is implemented
+
+## New Conversation Prompt
+
+Use this prompt when starting a new Codex conversation:
+
+```text
+Read PROJECT_CONTEXT.md, NEXT_SESSION.md, and TESTING_PLAN.md first, then inspect the current code.
+Run the automatic tests that can run in this environment.
+If no emulator/device is connected, explicitly say connectedDebugAndroidTest was not run.
+Do not touch .idea/misc.xml unless I explicitly ask for it.
+```

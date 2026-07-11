@@ -35,7 +35,7 @@ data class GalleryData(
     val deletedPhotos: List<PhotoItem> = emptyList(),
 )
 data class PhotoItem(
-    val id: Long,
+    val id: String,
     val uri: Uri? = null,
     val dateMillis: Long = 0L,
     val name: String = "",
@@ -52,7 +52,8 @@ data class PhotoSection(val title: String, val photos: List<PhotoItem>)
 data class AlbumItem(val name: String, val count: Int, val cover: PhotoItem? = null, val colors: List<Color> = emptyList())
 data class RestoreResult(val restored: Int)
 data class ImportResult(val imported: Int, val skipped: Int = 0, val duplicateSkipped: Int = 0)
-data class DeleteRequest(val mediaUris: List<Uri> = emptyList(), val localMoved: Int = 0, val skipped: Int = 0)
+data class DeleteRequest(val localMoved: Int = 0, val skipped: Int = 0)
+data class DeleteAlbumResult(val moved: Int, val removedFolders: Int)
 
 val palette = listOf(
     Color(0xFFC45A8B), Color(0xFFE6C66D), Color(0xFF6F8FC9), Color(0xFF2F3845),

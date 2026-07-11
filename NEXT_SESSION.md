@@ -14,6 +14,11 @@ Read `PROJECT_CONTEXT.md`, then inspect current code. Do not infer product rules
 - Root-level imported images show in all items, not in more albums.
 - Import uses SHA-256 duplicate detection and caches hashes in `context.filesDir/.media_index/hash_index.tsv`.
 - Import messages now distinguish imported files, duplicate skips, and other skips.
+- Import and trash paths are hardened: imports use temporary files and workspace-bound paths; trash indexes are atomic and self-heal stale entries.
+- Imported media sorting preserves embedded capture/creation time when available, otherwise the source modified time; it no longer defaults to the import time.
+- Media IDs use collision-free relative paths, all file mutations run off the UI thread, and concurrent storage mutations are serialized.
+- Video durations are cached by path/size/mtime. Hidden folders are skipped during traversal, and failed video players release their resources.
+- The non-functional sort sheet and fake fast-scroll handle were removed; add them back only with real behavior.
 - Delete/restore/permanent delete are app-controlled inside `Media/.recent_deleted`.
 - Video import, scanning, duration overlays, thumbnails, and aspect-fit TextureView/MediaPlayer playback with draggable progress controls are implemented inside the same `Media` tree.
 - Search buttons open a separate search page. Search currently matches file name, album, path, label, and media type metadata only.

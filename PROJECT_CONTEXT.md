@@ -25,6 +25,8 @@ Last updated: 2026-07-10
 - Import is copy-only for now. Cut/move import is not implemented.
 - Import skips image/video files whose SHA-256 content hash already exists in the current `Media` workspace, even if the file name is different.
 - Hashes are cached in `context.filesDir/.media_index/hash_index.tsv` with path, size, modified time, and SHA-256. The cache is refreshed from file size/mtime and pruned on the next import.
+- Imports are serialized. Provider names are normalized, every destination is verified to remain inside `Media`, and content is copied to a hidden temporary file before it is renamed into place.
+- Imported media preserves its own time for sorting: embedded image/video creation time first, source modified time second, and import time only as a final fallback.
 - Import result messages distinguish imported files, duplicate skips, and other skips.
 
 ## Albums And Display
@@ -46,7 +48,7 @@ Last updated: 2026-07-10
 ## Delete / Restore
 
 - Delete is app-controlled for workspace files: move to `Media/.recent_deleted`.
-- Trash metadata is stored under `context.filesDir/.recent_deleted`.
+- Trash metadata is stored under `context.filesDir/.recent_deleted` and updated with atomic file replacement. Missing trash targets are pruned on scan so an interrupted delete cannot hide the original media.
 - Restore moves files back to the recorded relative path and recreates missing folders inside `Media`.
 - Permanent delete removes selected files from app recent-deleted after confirmation.
 - Android system gallery trash integration is not part of the current workspace-only design.
